@@ -332,7 +332,13 @@ class MEDARoutingEnv(gym.Env):
         return self._get_obs()
 
     def render_frame(self, scale: int = 8) -> np.ndarray:
-        """RGB frame: health in gray, routing zone lit, faults red, goal green, droplet blue."""
+        """RGB frame for humans (north up).
+
+        Gray levels show the continuous sensed degradation ``D`` (not the
+        ``b``-bit health reading the agent observes); the routing zone is lit,
+        injected faults are red, hidden defects purple, the goal green and the
+        droplet blue.
+        """
         deg = self.chip.degradation()  # sensed degradation
         img = np.repeat(deg.T[:, :, None], 3, axis=2) * 0.6 + 0.2
         hx, hy = self.hazard.slices()
