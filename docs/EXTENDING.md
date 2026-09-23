@@ -43,9 +43,25 @@ class MyGNN(BaseFeaturesExtractor):
         return features              # (batch, features_dim)
 ```
 
-Select it in a config (`agent.extractor: my_gnn`, plus `agent.extractor_kwargs`).
-The actor (8 logits) and critic heads are linear layers on top of the
-features, as in the paper.
+Select it in a config with `agent.extractor: my_gnn`, and set
+`agent.extractor_kwargs` to its own arguments; the defaults are the CNN's
+`channels` and `hidden_dim`. The actor (8 logits) and critic heads are
+linear layers on top of the features, as in the paper.
+
+The `meda` command must import the module that registers the extractor.
+This applies to training and to every command that loads the trained model
+(`evaluate`, `compare`, `bioassay`, `render`). Pass
+`--import-module <module>` to do this. The current directory is put on
+`sys.path` first, so run from the repository root to use a module that
+lives in the repository:
+
+```bash
+meda train -c configs/training/quick_cpu_30x30.yaml \
+    --import-module examples.gnn_extractor_example \
+    --set agent.extractor=gnn_example --set "agent.extractor_kwargs={}"
+meda compare -m runs/quick_cpu_30x30/seed_0 --routers drl baseline formal \
+    --import-module examples.gnn_extractor_example --set env.fault_fraction=0.1
+```
 
 [`examples/gnn_extractor_example.py`](../examples/gnn_extractor_example.py)
 is a small, working (not tuned) example. It treats the observation as an

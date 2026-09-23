@@ -58,8 +58,8 @@ decision is listed in [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.m
 
 The authors published their trained 30×30 agent. Loaded into this
 environment (`scripts/evaluate_reference_model.py`), it routes **100% of
-random jobs successfully in 10.1 cycles** on average, matching its own
-training log (100%, ≈10.5 cycles). This agent never saw our code, so the
+300 random jobs successfully in 10.0 cycles** on average, matching its own
+training log (99.8–100%, ≈10.5 cycles). This agent never saw our code, so the
 simulator reproduces the original dynamics, action semantics and job
 distribution. See [docs/RESULTS.md](docs/RESULTS.md) for this check and the
 others: reward/distance statistics, health-aware vs. health-agnostic routing
@@ -68,7 +68,7 @@ and bioassay timings.
 ## Installation
 
 ```bash
-git clone https://github.com/codebreaker32/meda-gnn-routing.git
+git clone https://github.com/codebreaker32/meda.git meda-gnn-routing
 cd meda-gnn-routing
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # installs the `meda` command
@@ -101,9 +101,12 @@ meda compare --model runs/paper_30x30_healthy/seed_0 --routers drl baseline form
 meda render --model runs/paper_30x30_healthy/seed_0 --set env.fault_fraction=0.1 --out episode.gif
 ```
 
-Any config value can be overridden with `--set key=value`. Examples are
-`--set schedule.epochs=40`, `--set env.width=60 --set env.height=60` and
-`--set ppo.device=cuda`.
+`train` and `curriculum` accept any config value as `--set key=value`, for
+example `--set schedule.epochs=40`, `--set env.width=60 --set env.height=60`
+or `--set ppo.device=cuda`. `evaluate`, `compare` and `render` accept only
+`env.*` overrides; their other settings are flags such as `--episodes` or
+`--device`. `bioassay` builds its chips from its own flags (`meda bioassay
+--help`).
 
 ## Reproducing the paper's experiments
 
@@ -147,10 +150,11 @@ droplets and single degraded electrodes on large chips. Its fully connected
 layer also grows with the chip area when native resolution is used. The MC
 grid is naturally a graph, and multi-droplet routing is naturally
 relational. [docs/EXTENDING.md](docs/EXTENDING.md) describes how to plug a
-GNN policy into this codebase. Only a registered feature extractor and a
-config line are needed. That page also shows how to benchmark a GNN policy
+GNN policy into this codebase. You register a feature extractor, select it
+with `--set agent.extractor=<name>`, and pass `--import-module <module>` to
+the `meda` commands. The page also shows how to benchmark a GNN policy
 against the paper's CNN, baseline and formal routers under exactly the same
-physics.
+physics. A working toy example is in `examples/gnn_extractor_example.py`.
 
 ## Citation
 

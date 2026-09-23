@@ -17,6 +17,7 @@ from stable_baselines3 import PPO
 
 from ..core.actions import Action
 from ..envs.observation import build_observation
+from ..training.config import coerce_numbers
 from .base import Router, RoutingState
 
 
@@ -24,7 +25,7 @@ def _load_env_section(model_path: Path) -> dict:
     for candidate in (model_path.parent / "config.yaml", model_path.parent.parent / "config.yaml"):
         if candidate.exists():
             with open(candidate, "r", encoding="utf-8") as fh:
-                return (yaml.safe_load(fh) or {}).get("env", {}) or {}
+                return coerce_numbers((yaml.safe_load(fh) or {}).get("env", {}) or {})
     return {}
 
 

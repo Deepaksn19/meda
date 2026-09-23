@@ -17,7 +17,7 @@ JOBS=${JOBS:-500}
 REPEATS=${REPEATS:-5}          # the paper repeats every training experiment 5 times
 EXTRA=(--set repeats=$REPEATS)
 SIZES=(030 060 090 120 150 180)
-TL_ONLY=(); TRAD_ONLY=()
+TL_ONLY=(); TRAD_ONLY=()   # expanded as ${A[@]+"${A[@]}"}: bash < 4.4 rejects empty "${A[@]}" under set -u
 if [[ "${QUICK:-0}" == "1" ]]; then
   EXTRA=(--set repeats=1 --set schedule.epochs=2 --set schedule.steps_per_epoch=2048 --set eval.episodes=50
          --set "agent.extractor_kwargs={channels: [16, 32, 32], hidden_dim: 64}")
@@ -27,14 +27,11 @@ if [[ "${QUICK:-0}" == "1" ]]; then
 fi
 mkdir -p "$RES"
 
-echo "== H(30,0%): healthy 30x30 agent (root of the transfer chain)"
-meda train -c configs/training/paper_30x30_healthy.yaml -o "$OUT" "${EXTRA[@]}"
-
-echo "== Figs. 4 (blue), 8: transfer learning chain"
-meda curriculum -c configs/curricula/transfer_learning.yaml -o "$OUT" "${TL_ONLY[@]}" "${EXTRA[@]}"
+echo "== Figs. 4 (blue), 8: transfer learning chain, rooted at H(30,0%) (stage s030_f00)"
+meda curriculum -c configs/curricula/transfer_learning.yaml -o "$OUT" ${TL_ONLY[@]+"${TL_ONLY[@]}"} "${EXTRA[@]}"
 
 echo "== Figs. 4 (red), 7: traditional learning (random init, native resolution)"
-meda curriculum -c configs/curricula/traditional_learning.yaml -o "$OUT" "${TRAD_ONLY[@]}" "${EXTRA[@]}"
+meda curriculum -c configs/curricula/traditional_learning.yaml -o "$OUT" ${TRAD_ONLY[@]+"${TRAD_ONLY[@]}"} "${EXTRA[@]}"
 
 for s in "${SIZES[@]}"; do
   meda plot-training "$OUT/traditional_learning/s${s}_f00" "$OUT/transfer_learning/s${s}_f00" \
@@ -45,8 +42,9 @@ for s in s030_f10 s030_f20 s090_f10 s090_f20; do
   meda plot-training "$OUT/transfer_learning/$s" --title "$s" --out "$RES/fig8_${s}.png"
 done
 
-echo "== Fig. 9: COVID bioassays on a 60x30 chip"
-meda train -c configs/training/covid_60x30.yaml -o "$OUT" --set init_from="$OUT/paper_30x30_healthy/seed_0" "${EXTRA[@]}"
+echo "== Fig. 9: COVID bioassays on a 60x30 chip (one agent, transferred from H*(30,0%))"
+meda train -c configs/training/covid_60x30.yaml -o "$OUT" \
+  --set init_from="$OUT/transfer_learning/s030_f00/seed_0" "${EXTRA[@]}" --set repeats=1
 for assay in covid-rat covid-pcr; do
   # degradation of the authors' Fig. 9 runs (fixed tau = 0.7, c = 200)
   meda bioassay --assay "$assay" --model "$OUT/covid_60x30/seed_0" \

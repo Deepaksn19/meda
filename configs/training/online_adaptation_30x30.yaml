@@ -1,8 +1,9 @@
 # Online adaptation (Sec. I): after offline training in simulation, keep
 # training the agent on ONE physical chip whose electrodes wear out as it is
 # used. The chip (degradation parameters, initial wear, 10% faults) is fixed
-# by chip_seed and shared by the training and evaluation environments; wear
-# accumulates across episodes instead of being reset.
+# by chip_seed, and its wear accumulates across episodes instead of being
+# reset. Each epoch is evaluated on a snapshot of the training chip, so the
+# evaluation episodes do not wear the chip being adapted to.
 name: online_adaptation_30x30
 init_from: runs/paper_30x30_faults10/seed_0
 output_dir: runs

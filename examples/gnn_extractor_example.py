@@ -11,13 +11,19 @@ All weights are independent of the chip size, so the same network can be
 trained on native-resolution observations of any chip (``obs_size: null``)
 and transferred between chip sizes without resizing.
 
-Usage::
+Usage, from the repository root::
 
-    import examples.gnn_extractor_example  # registers "gnn_example"
     meda train --config configs/training/quick_cpu_30x30.yaml \\
-        --set agent.extractor=gnn_example --set agent.extractor_kwargs={}
+        --import-module examples.gnn_extractor_example \\
+        --set agent.extractor=gnn_example --set "agent.extractor_kwargs={}"
+    meda evaluate --model runs/quick_cpu_30x30/seed_0 \\
+        --import-module examples.gnn_extractor_example
 
-or from Python (see ``tests/test_extending.py``).
+``--import-module`` imports this file, which registers ``"gnn_example"``,
+before the command runs; every command that loads the trained model needs
+it too.  ``agent.extractor_kwargs`` is reset because the config's defaults
+are the CNN's arguments.  From Python, import this module first (see
+``tests/test_extending.py``).
 """
 
 from __future__ import annotations

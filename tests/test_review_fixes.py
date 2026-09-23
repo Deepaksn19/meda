@@ -219,3 +219,34 @@ def test_curriculum_only_names_the_untrained_parent(tmp_path):
     assert (done["a"][0] / "model.zip").exists()
     done = run_curriculum(cur, output_dir=runs, only=["b"])  # now transfers from a
     assert load_config(done["b"][0] / "config.yaml").init_from == str(runs / "c" / "a" / "seed_0")
+
+
+def test_curriculum_only_starts_each_seed_from_the_parent_with_that_seed(tmp_path, monkeypatch):
+    from meda_routing.training import curriculum as curriculum_module
+
+    calls = []
+
+    class RecordingTrainer:
+        def __init__(self, config, run_dir, seed):
+            self.config, self.run_dir = config, run_dir
+
+        def run(self):
+            calls.append((self.run_dir.name, Path(self.config.init_from).name))
+
+    monkeypatch.setattr(curriculum_module, "Trainer", RecordingTrainer)
+    cur = _two_stage_curriculum(tmp_path)
+    runs = tmp_path / "runs"
+    for seed in (0, 1, 2, 10):
+        (runs / "c" / "a" / f"seed_{seed}").mkdir(parents=True)
+        (runs / "c" / "a" / f"seed_{seed}" / "model.zip").touch()
+    run_curriculum(cur, output_dir=runs, only=["b"], overrides=["seed=2", "repeats=1"])
+    run_curriculum(cur, output_dir=runs, only=["b"], overrides=["seed=10", "repeats=1"])
+    assert calls == [("seed_2", "seed_2"), ("seed_10", "seed_10")]
+
+
+def test_env_config_files_accept_scientific_notation(tmp_path):
+    from meda_routing.cli import main
+
+    config = tmp_path / "sci.yaml"
+    config.write_text("env: {width: 10, height: 10, fault_fraction: 1e-1}\n")
+    main(["compare", "--routers", "baseline", "--jobs", "1", "--config", str(config)])

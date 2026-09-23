@@ -50,19 +50,19 @@ def _import_modules(modules: List[str]) -> None:
 
 def _env_config_from(model: Optional[str], config: Optional[str], overrides: List[str]):
     """Env config of a trained model's run (or a training YAML) plus overrides."""
-    from .training.config import TrainConfig, apply_override
+    from .training.config import TrainConfig, apply_override, coerce_numbers
     from .training.trainer import resolve_model_path
 
     data: Dict = {}
     if config:
         with open(config, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
+            data = coerce_numbers(yaml.safe_load(fh) or {})
     elif model:
         model_path = resolve_model_path(model)
         for candidate in (model_path.parent / "config.yaml", model_path.parent.parent / "config.yaml"):
             if candidate.exists():
                 with open(candidate, "r", encoding="utf-8") as fh:
-                    data = yaml.safe_load(fh) or {}
+                    data = coerce_numbers(yaml.safe_load(fh) or {})
                 break
     for item in overrides:
         if not item.split("=", 1)[0].strip().startswith("env."):

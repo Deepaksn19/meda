@@ -31,19 +31,11 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 
 from .config import TrainConfig, apply_override, coerce_numbers
-from .trainer import Trainer, resolve_model_path
+from .trainer import Trainer, _seed_number, resolve_model_path
 
 
 class CurriculumError(ValueError):
     """A curriculum cannot run as requested (unknown stage, untrained parent, ...)."""
-
-
-def _seed_number(path: Path) -> int:
-    """``seed_10`` sorts after ``seed_2``."""
-    try:
-        return int(path.name.split("_", 1)[1])
-    except (IndexError, ValueError):
-        return 1 << 62
 
 
 def _trained_runs(stage_dir: Path) -> List[Path]:
@@ -137,8 +129,10 @@ def run_curriculum(
             seed = config.seed + r
             if init_from is not None:
                 if init_from in done:
+                    # the parent run with the same seed, else the r-th one
                     parents = done[init_from]
-                    parent = parents[r] if r < len(parents) else parents[0]
+                    by_seed = {_seed_number(d): d for d in parents}
+                    parent = by_seed.get(seed, parents[r] if r < len(parents) else parents[0])
                 else:
                     parent = Path(init_from)  # explicit path
                 config.init_from = str(parent)

@@ -70,6 +70,14 @@ def make_vec(env_config: EnvConfig, n_envs: int, seed: int, kind: str = "dummy")
     )
 
 
+def _seed_number(path: Path) -> int:
+    """``seed_10`` sorts after ``seed_2``."""
+    try:
+        return int(path.name.split("_", 1)[1])
+    except (IndexError, ValueError):
+        return 1 << 62
+
+
 def json_safe(value: Any) -> Any:
     """``value`` with NaN and infinite floats replaced by ``None`` (strict JSON)."""
     if isinstance(value, dict):
@@ -88,7 +96,7 @@ def resolve_model_path(path: Union[str, Path]) -> Path:
         for candidate in ("model.zip", "best_model.zip"):
             if (p / candidate).exists():
                 return p / candidate
-        seeds = sorted(p.glob("seed_*/model.zip"))
+        seeds = sorted(p.glob("seed_*/model.zip"), key=lambda m: _seed_number(m.parent))
         if seeds:
             return seeds[0]
         raise FileNotFoundError(f"no model.zip found in {p}")

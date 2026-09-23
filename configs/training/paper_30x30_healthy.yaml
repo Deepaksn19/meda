@@ -11,7 +11,8 @@ env:
   height: 30
   obs_size: [30, 30]       # unified observation (Sec. IV-C)
   adaptive_step: true      # parameterized action space (Algorithm 1)
-  kmax_alpha: 1.0          # k_max = alpha * (W_h + H_h), alpha in [1, 2]
+  kmax_alpha: 1.0          # k_max = alpha * (W_h + H_h), alpha in [1, 2]; 2 matches the
+                           # early-epoch cycles of Figs. 4/7 (IMPLEMENTATION_NOTES #8)
   fault_fraction: 0.0      # healthy chip: actuations reset every episode
   fault_cluster: 2
   hidden_defect_fraction: 0.0
