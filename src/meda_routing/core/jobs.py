@@ -79,8 +79,9 @@ class JobSamplerConfig:
     #: Fraction of the extra edge mass for stratified sampling; the reference
     #: implementation adds ``W // 5`` copies of each edge coordinate.
     edge_weight: float = 0.2
-    #: Margin (in MCs) kept free at the chip border for ``"uniform"`` sampling.
-    #: The paper's ``xa ~ U{2, W-w-1}`` (1-based) keeps roughly one MC free.
+    #: Margin (in MCs) for ``"uniform"`` sampling: ``xa ~ U{m, W-w-1-m}``
+    #: (0-based).  The default ``m = 1`` is exactly the paper's
+    #: ``xa ~ U{2, W-w-1}`` in 1-based coordinates (Sec. IV-A).
     uniform_margin: int = 1
     #: Routing-zone margin around start and goal; ``None`` = whole chip.
     hazard_margin: Optional[int] = 3
@@ -145,8 +146,9 @@ class JobSampler:
 
     def _uniform_droplet(self, w: int, h: int) -> Droplet:
         m = self.config.uniform_margin
-        x_hi = max(self.width - w - m, m)
-        y_hi = max(self.height - h - m, m)
+        # xa ~ U{m, W-w-1-m}; clamp for chips too small for the margin
+        x_hi = max(self.width - w - 1 - m, 0)
+        y_hi = max(self.height - h - 1 - m, 0)
         x = int(self.rng.integers(min(m, x_hi), x_hi + 1))
         y = int(self.rng.integers(min(m, y_hi), y_hi + 1))
         return Droplet.at(x, y, w, h)
