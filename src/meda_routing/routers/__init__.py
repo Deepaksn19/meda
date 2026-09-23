@@ -8,7 +8,6 @@
 
 from .base import JobResult, Router, RoutingState, run_job
 from .baseline import ShortestPathRouter
-from .compare import compare_routers, summarize_comparison
 from .formal import FormalRouter
 
 __all__ = [
@@ -25,10 +24,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    # DRLRouter pulls in torch and Stable-Baselines3; import it on first use so
-    # the baselines and the bioassay scheduler stay lightweight.
+    # DRLRouter pulls in torch and Stable-Baselines3, the comparison harness
+    # pandas and gymnasium; import them on first use so the baselines and the
+    # bioassay scheduler stay lightweight.
     if name == "DRLRouter":
         from .drl import DRLRouter
 
         return DRLRouter
+    if name in ("compare_routers", "summarize_comparison"):
+        from . import compare
+
+        return getattr(compare, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

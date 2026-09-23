@@ -143,6 +143,14 @@ def cmd_bioassay(args: argparse.Namespace) -> None:
 
     assay = get_bioassay(args.assay)
     factories = _router_factories(args.routers, args.model, args.step_mode)
+    degradation = None
+    if args.tau_range or args.c_range:
+        from .core.biochip import DegradationConfig
+
+        degradation = DegradationConfig(
+            tau_range=tuple(args.tau_range or (0.5, 0.7)),
+            c_range=tuple(args.c_range or (500.0, 800.0)),
+        )
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     results: Dict[str, np.ndarray] = {}
@@ -161,6 +169,7 @@ def cmd_bioassay(args: argparse.Namespace) -> None:
             max_initial_actuations=args.max_initial_actuations,
             fault_fraction=args.fault_fraction,
             hidden_defect_fraction=args.hidden_defect_fraction,
+            degradation=degradation,
             progress=progress,
             on_timeout=args.on_timeout,
             max_cycles=args.max_cycles,
@@ -282,6 +291,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-initial-actuations", type=int, default=399)
+    p.add_argument("--tau-range", type=float, nargs=2, metavar=("LO", "HI"),
+                   help="degradation tau range (default: paper, 0.5 0.7; the authors' "
+                        "bioassay runs used 0.7 0.7)")
+    p.add_argument("--c-range", type=float, nargs=2, metavar=("LO", "HI"),
+                   help="degradation c range (default: paper, 500 800; the authors' "
+                        "bioassay runs used 200 200)")
     p.add_argument("--fault-fraction", type=float, default=0.0)
     p.add_argument("--hidden-defect-fraction", type=float, default=0.0)
     p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])
