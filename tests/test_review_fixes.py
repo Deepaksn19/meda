@@ -108,3 +108,114 @@ def test_kmax_basis():
     assert zone.k_max == zone.hazard.width + zone.hazard.height
     with pytest.raises(ValueError):
         MEDARoutingEnv({"kmax_basis": "nope"}).reset(seed=0)
+
+
+def test_online_mode_evaluates_on_a_snapshot_of_the_training_chip(tmp_path, monkeypatch):
+    from meda_routing.training import trainer as trainer_module
+
+    seen = {}
+    share = trainer_module._share_chip_snapshot
+    evaluate = trainer_module.evaluate_model
+
+    def share_and_record(train_env, eval_env):
+        share(train_env, eval_env)
+        seen["train_chip"] = train_env.envs[0].unwrapped.chip
+        seen["wear"] = seen["train_chip"].actuations.copy()
+
+    def evaluate_and_check(model, eval_env, *args, **kwargs):
+        eval_env.reset()
+        for env in eval_env.envs:
+            chip = env.unwrapped.chip
+            assert chip is not seen["train_chip"]  # a copy: evaluation wear stays out of training
+            assert np.array_equal(chip.actuations, seen["wear"])
+            assert np.array_equal(chip.tau, seen["train_chip"].tau)
+        metrics = evaluate(model, eval_env, *args, **kwargs)
+        assert np.array_equal(seen["train_chip"].actuations, seen["wear"])
+        seen["checked"] = seen.get("checked", 0) + 1
+        return metrics
+
+    monkeypatch.setattr(trainer_module, "_share_chip_snapshot", share_and_record)
+    monkeypatch.setattr(trainer_module, "evaluate_model", evaluate_and_check)
+    config = load_config(
+        None,
+        [
+            "env.width=8",
+            "env.height=8",
+            "env.obs_size=[8,8]",
+            "env.jobs.droplet_sizes=[[2,2]]",
+            "env.persistent_chip=true",
+            "env.chip_seed=3",
+            "agent.extractor_kwargs={channels: [4], hidden_dim: 8}",
+            "ppo.n_envs=2",
+            "ppo.n_steps=32",
+            "ppo.device=cpu",
+            "schedule.epochs=2",
+            "schedule.steps_per_epoch=64",
+            "eval.episodes=2",
+            "eval.n_envs=2",
+            "verbose=0",
+        ],
+    )
+    trainer_module.Trainer(config, tmp_path / "run").run()
+    assert seen["checked"] == 2 and seen["wear"].sum() > 0
+
+
+def test_env_only_commands_reject_other_overrides(capsys):
+    from meda_routing.cli import main
+
+    with pytest.raises(SystemExit, match="only takes env"):
+        main(["compare", "--routers", "baseline", "--jobs", "1", "--set", "eval.episodes=4"])
+
+
+def test_json_safe_maps_nan_and_inf_to_null():
+    import json
+
+    from meda_routing.training.trainer import json_safe
+
+    value = {"a": float("nan"), "b": [1.0, float("inf")], "c": {"d": np.float64("nan"), "e": 2}}
+    assert json_safe(value) == {"a": None, "b": [1.0, None], "c": {"d": None, "e": 2}}
+    json.dumps(json_safe(value), allow_nan=False)
+
+
+def _two_stage_curriculum(tmp_path):
+    base = tmp_path / "base.yaml"
+    load_config(
+        None,
+        [
+            "env.width=8",
+            "env.height=8",
+            "env.obs_size=[8,8]",
+            "env.jobs.droplet_sizes=[[2,2]]",
+            "agent.extractor_kwargs={channels: [4], hidden_dim: 8}",
+            "ppo.n_envs=2",
+            "ppo.n_steps=32",
+            "ppo.device=cpu",
+            "schedule.epochs=1",
+            "schedule.steps_per_epoch=64",
+            "eval.episodes=2",
+            "eval.n_envs=2",
+            "verbose=0",
+        ],
+    ).save_yaml(base)
+    cur = tmp_path / "cur.yaml"
+    cur.write_text(
+        f"name: c\nbase: {base}\nstages:\n  - name: a\n  - name: b\n    init_from: a\n"
+    )
+    return cur
+
+
+def test_curriculum_only_names_the_untrained_parent(tmp_path):
+    from meda_routing.training.curriculum import CurriculumError
+
+    cur = _two_stage_curriculum(tmp_path)
+    runs = tmp_path / "runs"
+    (runs / "c" / "a" / "seed_0").mkdir(parents=True)  # a crashed run without model.zip
+    with pytest.raises(CurriculumError, match="train a first"):
+        run_curriculum(cur, output_dir=runs, only=["b"])
+    assert not (runs / "c" / "b").exists()  # nothing written for the failed stage
+    with pytest.raises(CurriculumError, match="unknown stage"):
+        run_curriculum(cur, output_dir=runs, only=["nope"])
+    done = run_curriculum(cur, output_dir=runs, only=["a"])
+    assert (done["a"][0] / "model.zip").exists()
+    done = run_curriculum(cur, output_dir=runs, only=["b"])  # now transfers from a
+    assert load_config(done["b"][0] / "config.yaml").init_from == str(runs / "c" / "a" / "seed_0")

@@ -13,7 +13,7 @@ A curriculum YAML lists stages; each stage deep-merges its overrides onto a
 base training config and may name an earlier stage in ``init_from``::
 
     name: transfer
-    base: configs/training/paper_defaults.yaml
+    base: ../training/paper_30x30_healthy.yaml   # relative to this file (or the CWD)
     stages:
       - name: s030_f00
         env: {width: 30, height: 30}
@@ -31,7 +31,11 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 
 from .config import TrainConfig, apply_override, coerce_numbers
-from .trainer import Trainer
+from .trainer import Trainer, resolve_model_path
+
+
+class CurriculumError(ValueError):
+    """A curriculum cannot run as requested (unknown stage, untrained parent, ...)."""
 
 
 def _seed_number(path: Path) -> int:
@@ -40,6 +44,12 @@ def _seed_number(path: Path) -> int:
         return int(path.name.split("_", 1)[1])
     except (IndexError, ValueError):
         return 1 << 62
+
+
+def _trained_runs(stage_dir: Path) -> List[Path]:
+    """Seed directories of a stage that hold a finished model."""
+    runs = [d for d in stage_dir.glob("seed_*") if (d / "model.zip").exists()]
+    return sorted(runs, key=_seed_number)
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -85,6 +95,12 @@ def run_curriculum(
     for item in spec["overrides"]:
         apply_override(base, item)
     root = Path(output_dir or base.get("output_dir", "runs")) / spec["name"]
+    stage_names = [stage.get("name") for stage in spec["stages"]]
+    unknown = [name for name in only or [] if name not in stage_names]
+    if unknown:
+        raise CurriculumError(
+            f"unknown stage(s) {', '.join(unknown)}; the stages are {', '.join(stage_names)}"
+        )
     done: Dict[str, List[Path]] = {}
     for stage in spec["stages"]:
         stage = dict(stage)
@@ -98,10 +114,24 @@ def run_curriculum(
         config = TrainConfig.from_dict(data)
         if only and name not in only:
             # still register existing results so later stages can transfer from them
-            existing = sorted((root / name).glob("seed_*"), key=_seed_number)
+            existing = _trained_runs(root / name)
             if existing:
                 done[name] = existing
             continue
+        # check the parent before anything is written
+        if init_from is not None and init_from not in done:
+            if init_from in stage_names:
+                raise CurriculumError(
+                    f"stage {name} starts from stage {init_from}, which has no trained model under "
+                    f"{root / init_from}: train {init_from} first (drop --only or add {init_from} to it)"
+                )
+            try:
+                resolve_model_path(init_from)  # an explicit model path
+            except FileNotFoundError as err:
+                raise CurriculumError(
+                    f"stage {name}: init_from {init_from!r} is neither a stage of this curriculum "
+                    f"nor a trained model ({err})"
+                ) from None
         run_dirs = []
         for r in range(config.repeats):
             seed = config.seed + r

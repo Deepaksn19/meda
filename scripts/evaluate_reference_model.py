@@ -21,6 +21,10 @@ Usage::
     # download the model (git-LFS) first, e.g.
     #   curl -L -o 0825a.zip https://media.githubusercontent.com/media/melfar87/MEDA/master/policy/0825a_030x030_E100_NPS64_00.zip
     python scripts/evaluate_reference_model.py 0825a.zip --episodes 500
+
+    # the same jobs routed by the health-agnostic shortest path (cycle-optimal
+    # on healthy chips): the score an optimal policy gets on this job set
+    python scripts/evaluate_reference_model.py --shortest-path --episodes 500
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from torch import nn
 
 from meda_routing.core.actions import Action
 from meda_routing.envs import MEDARoutingEnv
+from meda_routing.routers.baseline import shortest_path_action
 from meda_routing.training.config import load_config
 
 #: Original ``Direction`` enum order: NN, NE, EE, SE, SS, SW, WW, NW.
@@ -109,14 +114,18 @@ def reference_observation(env: MEDARoutingEnv, collision: np.ndarray, bits: int 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("model", help="SB2 model zip from melfar87/MEDA/policy")
+    ap.add_argument("model", nargs="?", help="SB2 model zip from melfar87/MEDA/policy")
+    ap.add_argument("--shortest-path", action="store_true",
+                    help="route the same jobs with the shortest path instead of the agent")
     ap.add_argument("--config", default="configs/training/reference_0825a_30x30.yaml")
     ap.add_argument("--episodes", type=int, default=500)
     ap.add_argument("--seed", type=int, default=10000)
     ap.add_argument("--set", action="append", default=[], help="env override, e.g. env.fault_fraction=0.1")
     args = ap.parse_args()
+    if args.model is None and not args.shortest_path:
+        ap.error("give a model zip, or --shortest-path")
 
-    net = ReferenceCNN(load_sb2_params(args.model)).eval()
+    net = None if args.shortest_path else ReferenceCNN(load_sb2_params(args.model)).eval()
     env = MEDARoutingEnv(load_config(args.config, args.set).env)
     scores, cycles, success = [], [], []
     with torch.no_grad():
@@ -124,10 +133,13 @@ def main() -> None:
             env.reset(seed=args.seed + i)
             done, total = False, 0.0
             while not done:
-                # env._collision follows the original: flags of the last invalid action
-                obs = torch.from_numpy(reference_observation(env, env._collision))[None]
-                logits, _ = net(obs)
-                action = REFERENCE_ACTIONS[int(logits.argmax())]
+                if net is None:
+                    action = shortest_path_action(env.droplet, env.goal)
+                else:
+                    # env._collision follows the original: flags of the last invalid action
+                    obs = torch.from_numpy(reference_observation(env, env._collision))[None]
+                    logits, _ = net(obs)
+                    action = REFERENCE_ACTIONS[int(logits.argmax())]
                 _, reward, term, trunc, info = env.step(action)
                 total += reward
                 done = term or trunc
@@ -135,6 +147,7 @@ def main() -> None:
             cycles.append(info["num_cycles"])
             success.append(info["is_success"])
     print(json.dumps({
+        "policy": "shortest-path" if net is None else args.model,
         "episodes": args.episodes,
         "success_rate": float(np.mean(success)),
         "mean_cycles": float(np.mean(cycles)),

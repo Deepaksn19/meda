@@ -10,8 +10,11 @@ bioassay       COVID-RAT / COVID-PCR completion-time benchmark (Fig. 9)
 plot-training  training curves from run directories (Figs. 4, 7, 8)
 render         record a GIF of the agent routing a droplet
 
-Every command that builds an environment accepts ``--set key=value``
-overrides of the (training) config, e.g. ``--set env.fault_fraction=0.1``.
+``train`` and ``curriculum`` accept ``--set key=value`` overrides of any
+training-config value, e.g. ``--set schedule.epochs=40``.  ``evaluate``,
+``compare`` and ``render`` accept overrides of the environment only
+(``--set env.fault_fraction=0.1``); their other settings are flags.
+``bioassay`` builds its chips from its own flags.
 """
 
 from __future__ import annotations
@@ -62,6 +65,11 @@ def _env_config_from(model: Optional[str], config: Optional[str], overrides: Lis
                     data = yaml.safe_load(fh) or {}
                 break
     for item in overrides:
+        if not item.split("=", 1)[0].strip().startswith("env."):
+            raise SystemExit(
+                f"--set {item}: this command only takes env.* overrides "
+                f"(e.g. env.fault_fraction=0.1); see --help for its other settings"
+            )
         apply_override(data, item)
     return TrainConfig.from_dict({k: v for k, v in data.items() if k in {"env"}}).env
 
@@ -108,9 +116,12 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def cmd_curriculum(args: argparse.Namespace) -> None:
-    from .training.curriculum import run_curriculum
+    from .training.curriculum import CurriculumError, run_curriculum
 
-    done = run_curriculum(args.config, args.output_dir, args.only, args.set)
+    try:
+        done = run_curriculum(args.config, args.output_dir, args.only, args.set)
+    except CurriculumError as err:
+        raise SystemExit(f"meda curriculum: {err}") from None
     for name, dirs in done.items():
         print(f"{name}: {', '.join(str(d) for d in dirs)}")
 
@@ -119,7 +130,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     from stable_baselines3 import PPO
 
     from .training.evaluation import evaluate_model
-    from .training.trainer import make_vec, resolve_model_path
+    from .training.trainer import json_safe, make_vec, resolve_model_path
 
     env_config = _env_config_from(args.model, args.config, args.set)
     model = PPO.load(resolve_model_path(args.model), device=args.device)
@@ -127,10 +138,10 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     metrics = evaluate_model(model, vec, args.episodes, deterministic=not args.stochastic)
     vec.close()
     # strict JSON: NaN (e.g. no successful episode) becomes null
-    metrics = {k: (None if isinstance(v, float) and v != v else v) for k, v in metrics.items()}
-    print(json.dumps(metrics, indent=2))
+    text = json.dumps(json_safe(metrics), indent=2, allow_nan=False)
+    print(text)
     if args.out:
-        Path(args.out).write_text(json.dumps(metrics, indent=2))
+        Path(args.out).write_text(text)
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
@@ -258,9 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    def add_set(p: argparse.ArgumentParser) -> None:
+    def add_set(p: argparse.ArgumentParser, env_only: bool = False) -> None:
+        what = "env override, e.g. env.fault_fraction=0.1" if env_only else \
+            "config override, e.g. schedule.epochs=40 or env.fault_fraction=0.1"
         p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                       help="config override, e.g. env.fault_fraction=0.1 (repeatable)")
+                       help=f"{what} (repeatable)")
 
     def add_import(p: argparse.ArgumentParser) -> None:
         p.add_argument("--import-module", action="append", default=[], metavar="MODULE",
@@ -292,7 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", default="cpu")
     p.add_argument("--out", help="write metrics JSON here")
     add_import(p)
-    add_set(p)
+    add_set(p, env_only=True)
     p.set_defaults(func=cmd_evaluate)
 
     p = sub.add_parser("compare", help="compare routers on identical random jobs (Sec. VI)")
@@ -307,7 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")
     p.add_argument("--out", help="CSV with one row per (job, router)")
     add_import(p)
-    add_set(p)
+    add_set(p, env_only=True)
     p.set_defaults(func=cmd_compare)
 
     p = sub.add_parser("bioassay", help="bioassay completion benchmark (Fig. 9)")
@@ -347,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="episode.gif")
     add_import(p)
-    add_set(p)
+    add_set(p, env_only=True)
     p.set_defaults(func=cmd_render)
     return parser
 

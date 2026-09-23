@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import os
+import urllib.request
 from typing import Dict, List
 
 import numpy as np
@@ -34,12 +35,11 @@ from meda_routing.core.geometry import Droplet, chip_rect
 from meda_routing.core.jobs import RoutingJob, hazard_bounds
 from meda_routing.routers.base import Router, RoutingState, run_job
 
-REFERENCE_SGS = os.environ.get(
-    "MEDA_REFERENCE_SGS",
-    os.path.join(
-        "/tmp/claude-0/-home-user-meda/24c6dded-d602-513e-be3e-82a0cac03391/scratchpad",
-        "research/melfar87_MEDA/meda_sgs.py",
-    ),
+#: The reference bioassay definitions, pinned to the commit the transcription
+#: was checked against.  Set MEDA_REFERENCE_SGS to a local copy to run offline.
+REFERENCE_SGS_URL = (
+    "https://raw.githubusercontent.com/melfar87/MEDA/"
+    "1667016da1abe7d8339e9b277e10dd4881b6886a/meda_sgs.py"
 )
 
 _ACTION_OF = {vec: act for act, vec in DIRECTIONS.items()}
@@ -105,9 +105,23 @@ def _parse_reference(path: str) -> Dict[str, list]:
     return graphs
 
 
-@pytest.mark.skipif(not os.path.exists(REFERENCE_SGS), reason="reference meda_sgs.py not available")
-def test_transcription_matches_reference_file():
-    graphs = _parse_reference(REFERENCE_SGS)
+@pytest.fixture(scope="module")
+def reference_sgs(tmp_path_factory) -> str:
+    """``$MEDA_REFERENCE_SGS``, or the pinned file downloaded (skipped when offline)."""
+    local = os.environ.get("MEDA_REFERENCE_SGS")
+    if local:
+        return local
+    path = tmp_path_factory.mktemp("reference") / "meda_sgs.py"
+    try:
+        with urllib.request.urlopen(REFERENCE_SGS_URL, timeout=30) as response:
+            path.write_bytes(response.read())
+    except OSError as err:  # URLError and timeouts are OSErrors
+        pytest.skip(f"reference meda_sgs.py not available: {err}")
+    return str(path)
+
+
+def test_transcription_matches_reference_file(reference_sgs):
+    graphs = _parse_reference(reference_sgs)
     for attr, factory in (("sg_CRAT", covid_rat), ("sg_CPCR", covid_pcr), ("sg_Simple", simple)):
         ours = factory()
         ref = bioassay_from_reference(ours.name, graphs[attr])

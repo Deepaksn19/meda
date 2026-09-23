@@ -70,6 +70,17 @@ def make_vec(env_config: EnvConfig, n_envs: int, seed: int, kind: str = "dummy")
     )
 
 
+def json_safe(value: Any) -> Any:
+    """``value`` with NaN and infinite floats replaced by ``None`` (strict JSON)."""
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
 def resolve_model_path(path: Union[str, Path]) -> Path:
     """Accept a ``.zip`` file or a run directory containing ``model.zip``."""
     p = Path(path)
@@ -233,7 +244,8 @@ class Trainer:
             "best_success_rate": float(history["success_rate"].max()) if len(history) else None,
         }
         with open(self.run_dir / "summary.json", "w", encoding="utf-8") as fh:
-            json.dump(summary, fh, indent=2)
+            # e.g. mean_cycles_success is NaN while no evaluation job succeeds
+            json.dump(json_safe(summary), fh, indent=2, allow_nan=False)
         return history
 
 
