@@ -1,0 +1,13 @@
+# H(30, 10%): 10% fully degraded MCs in 2x2 clusters, re-drawn every episode
+# (Sec. V-B, Fig. 8). Initialized from H*(30, 0%) as in Fig. 3(b).
+name: paper_30x30_faults10
+init_from: runs/paper_30x30_healthy/seed_0
+output_dir: runs
+env:
+  width: 30
+  height: 30
+  obs_size: [30, 30]
+  fault_fraction: 0.10
+  fault_cluster: 2
+schedule:
+  epochs: 20

@@ -1,0 +1,77 @@
+# Paper defaults (Elfar et al., TCAD 2023): single CNN agent trained on healthy
+# 30x30 MEDA biochips for all droplet sizes w,h in {2..6}, 0.8 <= w/h <= 1.25.
+# This is H(30, 0%), the root of the transfer-learning chain in Fig. 3(b).
+name: paper_30x30_healthy
+seed: 0
+repeats: 1                 # the paper repeats every experiment 5 times
+output_dir: runs
+
+env:
+  width: 30
+  height: 30
+  obs_size: [30, 30]       # unified observation (Sec. IV-C)
+  adaptive_step: true      # parameterized action space (Algorithm 1)
+  kmax_alpha: 1.0          # k_max = alpha * (W_h + H_h), alpha in [1, 2]; 2 matches the
+                           # early-epoch cycles of Figs. 4/7 (IMPLEMENTATION_NOTES #8)
+  fault_fraction: 0.0      # healthy chip: actuations reset every episode
+  fault_cluster: 2
+  hidden_defect_fraction: 0.0
+  protect_endpoints: true
+  mark_collisions: false
+  degradation:
+    tau_range: [0.5, 0.7]  # Sec. V-A
+    c_range: [500.0, 800.0]
+    health_bits: 2         # b (reference code: n_bits=2)
+    initial_actuations: zero
+    max_initial_actuations: 0
+  jobs:
+    droplet_sizes: [[2, 2], [3, 3], [4, 4], [4, 5], [5, 4], [5, 5], [5, 6], [6, 5], [6, 6]]
+    sampling: stratified   # extra mass on chip edges (dispensers/reservoirs)
+    edge_weight: 0.2
+    uniform_margin: 1
+    hazard_margin: 3       # routing zone = bbox(start, goal) +/- 3 MCs
+  reward:                  # r = a_dis*r_dis + a_ter*r_ter + a_act*r_act (Sec. III-D)
+    alpha_dis: 0.5         # coefficients from the authors' reference code
+    alpha_dis_away: 0.8
+    stall_penalty: 1.0
+    alpha_ter: 100.0
+    alpha_act: 1.0
+
+agent:
+  extractor: cnn           # Table I
+  extractor_kwargs:
+    channels: [64, 128, 128]
+    hidden_dim: 256
+
+ppo:                       # PPO2 as used by the authors, in SB3 terms
+  n_envs: 8                # eight parallel environments (Sec. V-B)
+  n_steps: 64
+  batch_size: 32           # = 8 * 64 / 16 minibatches
+  n_epochs: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.01
+  vf_coef: 0.25            # = PPO2's 0.5 (its value loss carries an extra 0.5 factor)
+  max_grad_norm: 0.5
+  clip_range: 0.2
+  clip_range_vf: 0.2
+  vec_env: dummy
+  device: auto
+
+schedule:
+  epochs: 25
+  steps_per_epoch: 16384   # 2^14 (Sec. V-B)
+  lr0: 3.5e-4              # eta_0
+  lr_min: 1.0e-6           # eta_min
+  lr_decay: 0.7            # beta_eta
+  success_threshold: 0.99
+  intra_epoch: sqrt        # reference-code schedule within an epoch
+
+eval:
+  episodes: 500            # 500 random routing jobs after every epoch
+  deterministic: true
+  n_envs: 8
+  seed: 10000
+
+tensorboard: false
+verbose: 1

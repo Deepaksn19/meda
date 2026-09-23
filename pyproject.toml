@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meda-gnn-routing"
+version = "0.1.0"
+description = "Reliable droplet routing on MEDA biochips: a reimplementation of the DRL approach of Elfar et al. (IEEE TCAD 2023) as a base for GNN-based routing."
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["microfluidics", "MEDA", "biochip", "droplet routing", "reinforcement learning", "PPO", "GNN"]
+dependencies = [
+    "numpy>=1.23",
+    "gymnasium>=0.29",
+    "stable-baselines3>=2.2",
+    "torch>=2.0",
+    "opencv-python-headless>=4.5",
+    "pyyaml>=6.0",
+    "matplotlib>=3.6",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+tensorboard = ["tensorboard>=2.10"]
+
+[project.scripts]
+meda = "meda_routing.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["slow: long-running tests (training smoke tests)"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:.*is an image but.*:UserWarning",
+]

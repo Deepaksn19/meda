@@ -1,0 +1,29 @@
+# Fig. 3(a) / Fig. 4 (red) / Fig. 7: traditional learning. Every agent starts
+# from a random initialization and observes the chip at its native resolution
+# (obs_size: null). Note that the fully connected layer of Table I then grows
+# with the chip area (128*W*H*256 weights: ~118M for 60x60, ~1.06B for 180x180),
+# so the larger stages need a GPU with plenty of memory. Set
+# `--set env.obs_size=[30,30]` to compare initializations at equal input size.
+name: traditional_learning
+base: ../training/paper_30x30_healthy.yaml
+# Epochs follow the paper's figures: 25 (Fig. 4; Fig. 7 for 30x30 and 60x60)
+# and 50 for the large chips (Fig. 7, 120x120 and 180x180).
+defaults:
+  env: {obs_size: null}
+  schedule: {epochs: 25}
+stages:
+  - name: s030_f00
+    env: {width: 30, height: 30}
+  - name: s060_f00
+    env: {width: 60, height: 60}
+  - name: s090_f00
+    env: {width: 90, height: 90}
+  - name: s120_f00
+    env: {width: 120, height: 120}
+    schedule: {epochs: 50}
+  - name: s150_f00
+    env: {width: 150, height: 150}
+    schedule: {epochs: 50}
+  - name: s180_f00
+    env: {width: 180, height: 180}
+    schedule: {epochs: 50}
