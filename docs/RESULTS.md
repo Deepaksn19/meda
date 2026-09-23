@@ -62,10 +62,28 @@ agent combines health awareness with the adaptive step of the second row.
 
 ## 4. Bioassays (Fig. 9 setting)
 
-COVID-RAT on a pre-aged 60×30 chip (`meda bioassay --assay covid-rat
---routers baseline formal`, 12 trials): baseline 241 cycles on average,
-formal 237 (paper, Fig. 9: roughly 190–235 for both). The DRL curve
-requires the `covid_60x30` agent (see the README).
+Setup: COVID-RAT and COVID-PCR on the pre-aged 60×30 chip. The baseline and
+formal routers use the double-step action set of the reference Fig. 9 driver.
+The degradation regime is either the paper's Sec. V-A ranges or the fixed
+`τ = 0.7, c = 200` the authors' bioassay runs actually used.
+Command: `meda bioassay --assay <name> --routers baseline formal`, with
+`--tau-range 0.7 0.7 --c-range 200 200` for the second regime. There were 30
+trials for RAT and 15 for PCR, and all trials completed.
+
+| assay | degradation | baseline, mean cycles | formal, mean cycles | paper, Fig. 9 (read off the plot) |
+|---|---|---|---|---|
+| COVID-RAT | Sec. V-A | 164.9 | 164.1 | |
+| COVID-RAT | authors' runs | 207.4 | 209.1 | baseline ≈ 192–235, formal ≈ 190–230 |
+| COVID-PCR | Sec. V-A | 601.5 | 608.4 | |
+| COVID-PCR | authors' runs | 772.4 | 797.0 | baseline ≈ 775–830+, formal ≈ 720–800 |
+
+In the authors' regime the baseline lands on the paper's timescale for both
+assays. So the transcribed sequence graphs, the multi-droplet scheduler and
+the physics reproduce the paper's bioassay setting. Our formal router
+maximizes the probability of arriving within its horizon, so it pays for
+reliability with slightly longer routes. The paper's PRISM-games strategies
+were somewhat faster than its baseline. The DRL curve needs the
+`covid_60x30` agent (see the README); training it on a CPU takes many hours.
 
 ## 5. Runtime (Sec. II-D, V-B)
 
