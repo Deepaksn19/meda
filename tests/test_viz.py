@@ -120,6 +120,8 @@ def test_load_history_accepts_frames_csv_paths_and_run_dirs(tmp_path):
         pd.testing.assert_frame_equal(load_history(source), frame, check_dtype=False)
     with pytest.raises(ValueError, match="success_rate"):
         load_history(frame.drop(columns="success_rate"))
+    with pytest.raises(ValueError, match="fraction"):  # percentages would be plotted x100 again
+        load_history(frame.assign(success_rate=100.0 * frame["success_rate"]))
     with pytest.raises(ValueError):
         aggregate_histories([])
     with pytest.raises(TypeError):
@@ -291,6 +293,8 @@ def test_plot_routing_path_validates_inputs(faulty_job, tmp_path):
         plot_routing_path(health, 4, [job.start], job.goal, job.hazard)
     with pytest.raises(TypeError, match="given for 'faults'"):  # output path in the faults slot
         plot_routing_path(health, 4, [job.start], job.goal, job.hazard, tmp_path / "x.png")
+    with pytest.raises(ValueError, match="W x H"):
+        plot_routing_path(health.ravel(), 4, [job.start], job.goal, job.hazard, None, tmp_path / "x.png")
     assert not (tmp_path / "x.png").exists()
 
 

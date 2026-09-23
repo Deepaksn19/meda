@@ -202,6 +202,9 @@ def load_history(history: HistoryLike) -> pd.DataFrame:
     missing = [c for c in REQUIRED_COLUMNS if c not in frame.columns]
     if missing:
         raise ValueError(f"training history lacks column(s) {missing}")
+    if (pd.to_numeric(frame["success_rate"], errors="coerce") > 1.0 + 1e-9).any():
+        # e.g. the reference's percentages (b_at_goal = 100): would be plotted x100 again
+        raise ValueError("success_rate must be a fraction in [0, 1], not a percentage")
     return frame
 
 
@@ -784,6 +787,8 @@ def plot_routing_path(
         if isinstance(faults, (str, os.PathLike)):
             hint = " (a path was given for 'faults'; pass faults=None or a mask before out_path)"
         raise TypeError(f"plot_routing_path() missing required argument: 'out_path'{hint}")
+    if np.ndim(chip_health) != 2:
+        raise ValueError("chip_health must be a W x H array indexed [x, y]")
     width, height = np.shape(chip_health)
     aspect = height / width
     ax_width = 4.8 if aspect <= 1.2 else max(2.4, 5.8 / aspect)

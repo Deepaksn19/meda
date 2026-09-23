@@ -278,6 +278,17 @@ def test_step_size_selects_algorithm_1_or_fixed_step():
     assert step_size(d, g, Action.NE) == adaptive_step(d, g, Action.NE) == (2, 2)
     assert step_size(d, g, Action.NE, adaptive=False) == unit_step(d, g, Action.NE, 1) == (1, 1)
     assert step_size(d, g, Action.NE, adaptive=False, fixed_step=2) == (2, 2)
+    # double-step model of [18]: aNN, aSS, aEE, aWW but no double-diagonal move
+    double = dict(adaptive=False, fixed_step=2, diagonal_step=1)
+    assert step_size(d, g, Action.N, **double) == (0, 2)
+    assert step_size(d, g, Action.W, **double) == (-2, 0)
+    assert step_size(d, g, Action.NE, **double) == (1, 1)
+    assert step_size(d, g, Action.SW, **double) == (-1, -1)
+    assert step_size(d, g, Action.NE, adaptive=False, fixed_step=1, diagonal_step=2) == (2, 2)
+    assert step_size(d, g, Action.NE, diagonal_step=1) == (2, 2)  # Algorithm 1 ignores it
+    zone = Rect(0, 0, 29, 29)
+    assert plan_move(d, g, zone, Action.NE, **double).target == d.shift(1, 1)
+    assert plan_move(d, g, zone, Action.E, **double).target == d.shift(2, 0)
 
 
 # ================================================== validity and clamping
@@ -376,6 +387,11 @@ def test_frontier_probabilities_by_hand():
 
 
 def test_movement_uses_true_degradation_not_health_reading():
+    """The movement model does not quantize ``D`` itself (0.74, not the reading 0.5).
+
+    That the environment hands the model the true (effective) ``D`` rather than
+    the sensed health is checked end to end in ``test_env.py``.
+    """
     chip = MEDABiochip(8, 6)
     chip.tau[:] = 1.0
     frontier = [(x, 3) for x in range(0, 8)]
@@ -440,8 +456,8 @@ def test_matches_reference_update_pattern(rng):
 def test_healthy_chip_moves_deterministically_to_target(rng):
     """``D = 1``: every valid move reaches its target (steps of at most the droplet size)."""
     for _ in range(300):
-        start, goal, hazard, _ = random_case(rng, min_size=2)
-        deg = np.ones((hazard.xb + 1, hazard.yb + 1))
+        start, goal, hazard, case_deg = random_case(rng, min_size=2)
+        deg = np.ones_like(case_deg)  # D = 1 on the whole W x H chip
         action = Action(int(rng.integers(8)))
         adaptive = bool(rng.random() < 0.6)
         plan = plan_move(

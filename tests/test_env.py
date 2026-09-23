@@ -18,6 +18,7 @@ Cross-checked against the paper and the authors' reference ``MEDAEnv``
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import warnings
 from collections import Counter
@@ -140,6 +141,11 @@ def test_gymnasium_env_checker(config):
         env.close()
 
 
+#: The only warnings SB3's checker may raise: float32 images in [0, 1] (Sec. III-C) and
+#: observations below 36 x 36 are intended, as the agent uses its own CNN extractor.
+SB3_IMAGE_WARNINGS = ("is an image but", "minimal resolution for an image")
+
+
 @pytest.mark.parametrize(
     "config",
     [
@@ -150,10 +156,11 @@ def test_gymnasium_env_checker(config):
 )
 def test_sb3_env_checker(make_env, config):
     env = make_env(config)
-    with warnings.catch_warnings():
-        # float32 [0, 1] images for a custom CNN extractor are intended
-        warnings.filterwarnings("ignore", message=".*image.*", category=UserWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         sb3_check_env(env, warn=True)
+    messages = [str(w.message) for w in caught]
+    assert [m for m in messages if not any(s in m for s in SB3_IMAGE_WARNINGS)] == []
 
 
 def test_spaces_and_info(make_env):
@@ -256,7 +263,42 @@ def test_observation_resized_non_integer_factor(make_env, obs_size):
     np.testing.assert_allclose(obs, expected.transpose(2, 0, 1), rtol=0, atol=1e-6)
 
 
+# ============================================================== step modes
+@pytest.mark.parametrize(
+    "overrides, action, moved",
+    [
+        ({}, Action.E, (3, 0)),  # Algorithm 1: Lambda = (3, 3) for a 6 x 6 droplet
+        ({}, Action.NE, (3, 3)),
+        ({"adaptive_step": False}, Action.E, (1, 0)),  # fixed single step
+        ({"adaptive_step": False}, Action.NE, (1, 1)),
+        ({"adaptive_step": False, "fixed_step": 2}, Action.E, (2, 0)),
+        ({"adaptive_step": False, "fixed_step": 2}, Action.NE, (2, 2)),
+        # double-step model of [18]: no double-diagonal move
+        ({"adaptive_step": False, "fixed_step": 2, "diagonal_step": 1}, Action.N, (0, 2)),
+        ({"adaptive_step": False, "fixed_step": 2, "diagonal_step": 1}, Action.NE, (1, 1)),
+    ],
+    ids=["alg1-E", "alg1-NE", "single-E", "single-NE", "double-E", "double-NE",
+         "double-no-diag-N", "double-no-diag-NE"],
+)  # fmt: skip
+def test_step_mode_options(make_env, ideal_chip_factory, overrides, action, moved):
+    start = Droplet.at(2, 2, 6, 6)
+    job = RoutingJob(start, Droplet.at(14, 12, 6, 6), chip_rect(24, 20))
+    env = make_env(width=24, height=20, obs_size=None, **overrides)
+    reset_on(env, job, ideal_chip_factory(24, 20))
+    env.step(action)
+    target = start.shift(*moved)
+    assert env.droplet == target  # D = 1: the droplet reaches the actuated target
+    assert np.array_equal(env.last_pattern, footprint_mask((24, 20), target))
+
+
 # ===================================================================== reward
+def test_default_reward_coefficients_are_the_reference_ones():
+    """``_getRewardH``: +100 at the goal, 0.5 / 0.8 progress / regress, -1 stall, -1 invalid."""
+    assert EnvConfig().reward == RewardConfig(
+        alpha_dis=0.5, alpha_dis_away=0.8, stall_penalty=1.0, alpha_ter=100.0, alpha_act=1.0
+    )
+
+
 @pytest.mark.parametrize(
     "action, moved, reward",
     [
@@ -381,6 +423,12 @@ def test_truncation_at_kmax(make_env, ideal_chip_factory, alpha, k_max):
         assert not terminated  # a timeout is not a terminal state (Sec. III-D)
         assert truncated == (k == k_max)
         assert info["num_cycles"] == k and r == pytest.approx(-2.0)  # no timeout penalty
+    # the next episode on the same instance restarts the cycle counter
+    _, info = env.reset(options={"job": job, "chip": ideal_chip_factory(12, 12)})
+    assert info["num_cycles"] == 0
+    for k in range(1, k_max + 1):
+        *_, truncated, info = env.step(Action.SW)
+        assert truncated == (k == k_max) and info["num_cycles"] == k
 
 
 def test_timeout_terminal_option(make_env, ideal_chip_factory):
@@ -466,6 +514,28 @@ def test_move_uses_pre_cycle_degradation_and_obs_shows_new_wear(make_env):
     assert obs[0, 4, 0] == 0.75  # never actuated: healthy (saturated reading)
 
 
+def test_physics_uses_true_degradation_not_the_health_reading(make_env):
+    """``P(move) = mean D`` of the actuated frontier (0.62), not the sensed ``H / 2**b`` (0.5)."""
+    chip = MEDABiochip(10, 8, rng=np.random.default_rng(0))
+    chip.tau[:] = 1.0
+    chip.tau[2:4, 4] = 0.62  # actuated frontier of the northward move below
+    chip.c[:] = 1e6
+    worn = 10**6  # D = tau ** 1 exactly; one more actuation changes D by ~1e-6
+    chip.actuations[:] = worn
+    start = Droplet.at(2, 2, 2, 2)
+    job = RoutingJob(start, Droplet.at(2, 5, 2, 2), chip_rect(10, 8))
+    env = make_env(width=10, height=8, obs_size=None)
+    obs, _ = reset_on(env, job, chip)
+    assert np.all(obs[0, 4, 2:4] == 0.5)  # what the agent senses: floor(4 * 0.62) / 4
+    n, moved = 2000, 0
+    for _ in range(n):
+        chip.actuations[:] = worn
+        env.reset(options={"job": job, "chip": chip})
+        env.step(Action.N)
+        moved += env.droplet == start.shift(0, 1)
+    assert abs(moved / n - 0.62) <= 4.5 * math.sqrt(0.62 * 0.38 / n)
+
+
 # ============================================================== reproducibility
 def test_seeded_episodes_are_reproducible(make_env):
     config = dict(
@@ -522,6 +592,22 @@ def test_external_chip_keeps_wear_and_gets_no_faults(make_env, ideal_chip_factor
     assert env.chip is not chip and env.chip.faults.mean() >= 0.2
     env.step(Action.N)
     assert np.array_equal(chip.actuations, frozen)
+
+
+@pytest.mark.parametrize("obs_size", [None, (30, 30)])
+def test_external_chip_must_match_the_environment(make_env, obs_size):
+    env = make_env(width=16, height=12, obs_size=obs_size)
+    for shape in [(20, 12), (16, 10), (12, 16)]:
+        with pytest.raises(ValueError):
+            env.reset(seed=0, options={"chip": MEDABiochip(*shape)})
+
+
+def test_job_off_the_chip_is_rejected(make_env):
+    """Otherwise the goal would silently vanish from the observation."""
+    env = make_env(width=12, height=10, obs_size=None)
+    job = RoutingJob(Droplet.at(8, 7, 3, 3), Droplet.at(14, 9, 3, 3), Rect(0, 0, 20, 15))
+    with pytest.raises(ValueError):
+        env.reset(seed=0, options={"job": job})
 
 
 def test_persistent_chip_accumulates_wear_across_episodes(make_env):
@@ -588,8 +674,9 @@ def test_faults_redrawn_each_episode_and_endpoints_protected(make_env):
     for _ in range(25):
         obs, _ = env.reset()
         faults, hidden = env.chip.faults, env.chip.hidden_defects
-        assert math.ceil(0.25 * 400) <= faults.sum() <= math.ceil(0.25 * 400) + 3  # 2 x 2 clusters
-        assert hidden.sum() >= math.ceil(0.05 * 400)
+        # each fraction is met with at most one partial 2 x 2 cluster beyond it
+        assert math.ceil(0.25 * 400) <= faults.sum() <= math.ceil(0.25 * 400) + 3
+        assert math.ceil(0.05 * 400) <= hidden.sum() <= math.ceil(0.05 * 400) + 3
         for drop in (env.job.start, env.job.goal):
             assert not faults[drop.slices()].any() and not hidden[drop.slices()].any()
         # visible faults read 0; hidden defects are invisible in the observation
@@ -600,6 +687,33 @@ def test_faults_redrawn_each_episode_and_endpoints_protected(make_env):
         assert np.all(env.chip.effective_degradation()[hidden] == 0.0)
         seen.add(faults.tobytes())
     assert len(seen) == 25  # a new fault map every episode (Sec. V-B)
+
+
+def in_full_blocks(mask: np.ndarray, allowed: np.ndarray, size: int) -> bool:
+    """Every set MC lies in a ``size x size`` window whose allowed MCs are all set."""
+    width, height = mask.shape
+    covered = np.zeros_like(mask)
+    for x in range(width - size + 1):
+        for y in range(height - size + 1):
+            block = (slice(x, x + size), slice(y, y + size))
+            if mask[block].any() and np.all(mask[block] | ~allowed[block]):
+                covered[block] |= mask[block]
+    return bool(np.array_equal(covered, mask))
+
+
+@pytest.mark.parametrize("cluster", [1, 3])
+def test_fault_cluster_option(make_env, cluster):
+    env = make_env(width=20, height=20, obs_size=None, fault_fraction=0.2, fault_cluster=cluster)
+    env.reset(seed=0)
+    target = math.ceil(0.2 * 400)
+    for _ in range(10):
+        env.reset()
+        faults = env.chip.faults
+        allowed = np.ones_like(faults)
+        for drop in (env.job.start, env.job.goal):
+            allowed[drop.slices()] = False
+        assert target <= faults.sum() <= target + cluster**2 - 1
+        assert in_full_blocks(faults, allowed, cluster)
 
 
 def test_unprotected_endpoints_can_be_faulty(make_env):
@@ -689,10 +803,28 @@ def test_env_config_errors_and_overrides(make_env):
     assert env.observation_space.shape == (3, 10, 12)
     env = make_env(EnvConfig(width=12, height=10), fault_fraction=0.2)
     assert env.config.fault_fraction == 0.2 and env.config.width == 12
+    # a list override (as from YAML / CLI) is coerced like in from_dict
+    env = make_env(EnvConfig(width=12, height=10), obs_size=[20, 16])
+    assert env.config.obs_size == (20, 16) and env.observation_space.shape == (3, 16, 20)
     assert make_env(obs_size=None).observation_space.shape == (3, 30, 30)
     registered = gym.make(ENV_ID, config={"width": 8, "height": 8, "obs_size": None})
     assert registered.observation_space.shape == (3, 8, 8)
     registered.close()
+    # nested dict overrides on top of a dict config become dataclasses
+    env = make_env({"width": 12, "height": 10}, degradation={"health_bits": 3})
+    assert env.config.degradation == DegradationConfig(health_bits=3)
+
+
+def test_nested_override_on_a_config_instance(make_env):
+    """A nested override updates only the given keys of that section."""
+    base = EnvConfig(width=12, height=10, degradation=DegradationConfig(tau_range=(0.2, 0.3)))
+    env = make_env(base, degradation={"health_bits": 3}, obs_size=[24, 20])
+    assert env.config.degradation == DegradationConfig(tau_range=(0.2, 0.3), health_bits=3)
+    assert env.config == dataclasses.replace(
+        base, degradation=env.config.degradation, obs_size=(24, 20)
+    )
+    assert env.chip.health_levels == 8
+    assert base.degradation.health_bits == 2  # the caller's config is not mutated
 
 
 # ================================================== consistency with run_job

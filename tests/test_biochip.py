@@ -178,6 +178,21 @@ def test_wear_lowers_health_at_predicted_actuation_counts():
     )
 
 
+def test_wear_is_monotone_on_a_worn_chip(worn_chip):
+    """``tau < 1``: actuations lower ``D`` of the actuated MCs only; ``H`` never rises."""
+    d0, h0 = worn_chip.degradation(), worn_chip.health()
+    assert set(np.unique(h0).tolist()) == {0, 1, 2, 3}  # the fixture shows every 2-bit reading
+    assert np.all((d0 > 0.0) & (d0 <= 1.0))
+    pattern = np.zeros(worn_chip.shape, dtype=bool)
+    pattern[3:9, 2:7] = True
+    for _ in range(40):
+        worn_chip.actuate(pattern)
+    d1, h1 = worn_chip.degradation(), worn_chip.health()
+    assert np.all(d1[pattern] < d0[pattern])
+    assert np.array_equal(d1[~pattern], d0[~pattern])
+    assert np.all(h1 <= h0) and np.array_equal(h1[~pattern], h0[~pattern])
+
+
 def test_visible_faults_and_hidden_defects():
     chip = MEDABiochip(6, 5)  # n = 0: D = 1 everywhere
     chip.set_faults([(1, 1), (2, 3)])
@@ -269,9 +284,24 @@ def test_inject_faults_respects_protect_and_region(rng):
             assert not chip.faults[r.slices()].any()
             allowed[r.slices()] = False
         assert not chip.faults[~allowed].any()
-        assert chip.faults[zone.slices()].sum() >= math.ceil(0.3 * zone.area)
+        # the fraction refers to the region, not to the whole chip
+        target = math.ceil(0.3 * zone.area)
+        assert target <= chip.faults[zone.slices()].sum() <= target + 3
         # blocks are clipped by the protected MCs, never shifted onto them
         assert covered_by_full_blocks(chip.faults, allowed, 2)
+
+
+def test_inject_faults_counts_existing_faults_inside_the_region_only(rng):
+    chip = MEDABiochip(20, 16, rng=rng)
+    region = Rect(4, 3, 15, 12)  # 12 x 10 MCs
+    chip.set_faults([(x, 0) for x in range(20)])  # 20 faults outside the region
+    chip.set_faults([(4, 3), (5, 3), (4, 4), (5, 4)])  # one cluster inside
+    added = chip.inject_faults(0.25, region=region)
+    inside = int(chip.faults[region.slices()].sum())
+    target = math.ceil(0.25 * region.area)  # 30, of which 4 already exist
+    assert target <= inside <= target + 3
+    assert added == inside - 4
+    assert int(chip.faults.sum()) == inside + 20  # nothing added outside the region
 
 
 def test_inject_faults_cannot_exceed_allowed_area(rng):

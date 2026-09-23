@@ -29,7 +29,7 @@ from gymnasium import spaces
 from ..core.actions import NUM_ACTIONS, Action
 from ..core.biochip import DegradationConfig, MEDABiochip
 from ..core.dynamics import execute_move, plan_move
-from ..core.geometry import Droplet, Rect
+from ..core.geometry import Droplet, Rect, chip_rect
 from ..core.jobs import JobSampler, JobSamplerConfig, RoutingJob
 from .observation import build_observation, observation_shape
 from .reward import RewardConfig, compute_reward
@@ -109,6 +109,16 @@ class EnvConfig:
         return dataclasses.asdict(self)
 
 
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def _tupleize(d: Dict[str, Any]) -> Dict[str, Any]:
     out = {}
     for k, v in d.items():
@@ -133,11 +143,11 @@ class MEDARoutingEnv(gym.Env):
     ) -> None:
         super().__init__()
         if config is None or isinstance(config, dict):
-            merged = dict(config or {})
-            merged.update(overrides)
-            config = EnvConfig.from_dict(merged)
+            config = EnvConfig.from_dict(_deep_merge(dict(config or {}), overrides))
         elif overrides:
-            config = dataclasses.replace(config, **overrides)
+            # nested overrides (e.g. degradation={"health_bits": 3}) update only
+            # the given keys of that section
+            config = EnvConfig.from_dict(_deep_merge(config.to_dict(), overrides))
         if config.obs_size is not None and not isinstance(config.obs_size, tuple):
             config = dataclasses.replace(config, obs_size=tuple(config.obs_size))
         self.config: EnvConfig = config
@@ -211,6 +221,11 @@ class MEDARoutingEnv(gym.Env):
                 self.chip.reset(resample_parameters=True)
                 faults_pending = True  # placed around this episode's job below
             self._chip_ready = True
+        if job is not None and not chip_rect(self.width, self.height).contains(job.hazard):
+            raise ValueError(
+                f"job routing zone {job.hazard.as_tuple()} does not fit the "
+                f"{self.width}x{self.height} chip"
+            )
         self.job = job if job is not None else self._sample_job(avoid_faults=not faults_pending)
         if faults_pending:
             protect = (self.job.start, self.job.goal) if self.config.protect_endpoints else ()

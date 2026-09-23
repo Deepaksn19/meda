@@ -255,7 +255,8 @@ def test_all_directions(action, w, h):
     assert adaptive_step(d, d, action) == full
     # goal exactly one reliable step ahead: land on it
     assert adaptive_step(d, d.shift(*full), action) == full
-    # goal 1 MC ahead on every moving axis (1 < Lambda for these sizes): capped
+    # goal 1 MC ahead on every moving axis: land on it (a capped step wherever
+    # Lambda > 1; for the 5 x 3 droplet Lambda_y = 1 is already the full step)
     assert adaptive_step(d, d.shift(ux, uy), action) == (ux, uy)
     # only the axes of the action move, whatever the goal offset
     for gx, gy in [(1, 1), (-1, -1), (7, -3), (-5, 9)]:
