@@ -377,11 +377,11 @@ def test_episode_frames_show_the_chip_pixel_for_pixel_under_the_trail():
     start, goal = Droplet.at(1, 6, 2, 2), Droplet.at(10, 0, 2, 2)  # north-west -> south-east
     env.reset(seed=0, options={"job": RoutingJob(start, goal, hazard_bounds(start, goal, width, height))})
     frame = env.render_frame(scale=scale)
-    fig, image, *_ = animation._episode_figure(frame, width, height)
+    fig, _, trail, *_ = animation._episode_figure(frame, width, height)
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
     rgb = np.asarray(canvas.buffer_rgba())[:, :, :3]
-    ax = image.axes
+    ax = trail.axes
     left, top = ax.transAxes.transform((0.0, 1.0))
     col0, row0 = int(round(left)), int(round(rgb.shape[0] - top))
     # the frame is shown unscaled and unflipped below the caption

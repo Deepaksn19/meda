@@ -90,11 +90,15 @@ def _episode_figure(frame: np.ndarray, width: int, height: int) -> Tuple[Figure,
     fig_w, fig_h = max(img_w, _MIN_WIDTH_PX), img_h + _CAPTION_PX
     # +0.01 px keeps int(size * dpi) from rounding a pixel away
     fig = Figure(figsize=((fig_w + 0.01) / _DPI, (fig_h + 0.01) / _DPI), dpi=_DPI, facecolor="white")
-    ax = fig.add_axes((0.5 * (fig_w - img_w) / fig_w, 0.0, img_w / fig_w, img_h / fig_h))
+    x0 = (fig_w - img_w) // 2
+    # A figure image is drawn unresampled at an integer pixel offset. An axes
+    # image would be resampled to the axes' fractional pixel bounds, which
+    # matplotlib < 3.11 stretches by one pixel.
+    image = fig.figimage(frame, xo=x0, yo=0, origin="upper", interpolation="nearest")
+    # a transparent axes over the frame maps MC (x, y) to data coordinates (x, y)
+    ax = fig.add_axes((x0 / fig_w, 0.0, img_w / fig_w, img_h / fig_h))
+    ax.set_zorder(image.get_zorder() + 1)
     ax.set_axis_off()
-    # frame rows run north to south; extent maps MC (x, y) to data coordinates (x, y)
-    image = ax.imshow(frame, origin="upper", extent=(-0.5, width - 0.5, -0.5, height - 0.5),
-                      interpolation="nearest", aspect="auto")
     ax.set_xlim(-0.5, width - 0.5)
     ax.set_ylim(-0.5, height - 0.5)
     (trail,) = ax.plot([], [], color=_TRAIL_COLOR, linewidth=1.5, alpha=0.9,
