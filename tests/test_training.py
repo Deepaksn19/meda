@@ -13,6 +13,7 @@ import pytest
 import torch
 
 from meda_routing.agents import MedaCNN, get_extractor, policy_kwargs_for, register_extractor
+from meda_routing.envs import MEDARoutingEnv
 from meda_routing.training.config import TrainConfig, apply_override, load_config
 from meda_routing.training.curriculum import deep_merge, load_curriculum, run_curriculum
 from meda_routing.training.lr_schedule import DynamicLearningRate
@@ -53,7 +54,10 @@ def test_defaults_match_paper():
 @pytest.mark.parametrize("path", sorted(glob.glob(str(REPO / "configs/training/*.yaml"))))
 def test_training_configs_load(path):
     cfg = load_config(path)
-    assert cfg.env.width >= 30 and cfg.agent.extractor == "cnn"
+    assert cfg.agent.extractor == "cnn"
+    env = MEDARoutingEnv(cfg.env)  # every shipped config builds a working environment
+    obs, _ = env.reset(seed=0)
+    assert env.observation_space.contains(obs)
 
 
 @pytest.mark.parametrize("path", sorted(glob.glob(str(REPO / "configs/curricula/*.yaml"))))
