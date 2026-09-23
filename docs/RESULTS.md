@@ -124,5 +124,82 @@ formal synthesis concerns much larger chips and full bioassays.
 
 ## 6. Learning on a reduced problem (CPU)
 
-See the curves produced by the 16×16 validation run below (added when the run
-completes).
+A Table I run on 30×30 chips does not fit a CPU budget, so we checked the
+learning pipeline on healthy 16×16 chips at native resolution
+(`configs/training/validation_16x16.yaml`). The droplet sizes (2×2 … 6×6),
+reward, PPO settings (except the value-loss weight, see the config) and
+dynamic learning rate are the paper's. The network
+is the reference code's smaller CNN (32/64/64 filters, FC 128). Training ran
+40 epochs of 2^13 steps, evaluated on 300 jobs per epoch. That is about 50
+minutes on 4 CPU cores (≈75 s per epoch).
+
+![Training curves on healthy 16x16 chips](figures/validation_16x16.png)
+
+The success rate climbs from 4% to 96–98% and the cycles per job drop from
+25 to about 6, the same shape as the paper's Figs. 4 and 7.
+
+Three 10-epoch fine-tunes then started from the best model (transfer
+learning, Sec. IV-C):
+- on chips with 10% faults;
+- with the reference code's collision marks (IMPLEMENTATION_NOTES #12);
+- with both, starting from the marks model.
+
+![Fault fine-tuning with and without collision marks](figures/validation_16x16_faults10.png)
+
+Every router below saw the same 300 jobs and chips (seed 0). "Faulty" means
+10% sensed faults plus 5% defects the sensors cannot see.
+
+| router | healthy: success | healthy: cycles¹ | faulty: success | faulty: cycles¹ |
+|---|---|---|---|---|
+| DRL, trained on healthy chips | 96.0% | 5.2 | 91.7% | 6.2 |
+| DRL, fine-tuned with collision marks | 99.0% | 4.8 | 94.0% | 6.0 |
+| DRL, fine-tuned on 10% faults | 92.7% | 5.3 | 89.7% | 6.2 |
+| DRL, fine-tuned on 10% faults with marks | 98.3% | 5.1 | 93.7% | 6.1 |
+| Baseline, single step | 100% | 7.5 | 96.0% | 8.8 |
+| Baseline, adaptive step | 100% | 4.5 | 95.3% | 5.4 |
+| Formal, single step | 100% | 7.5 | 99.0% | 8.8 |
+| Formal, adaptive step | 100% | 4.5 | 99.0% | 5.4 |
+
+¹ mean over successful jobs.
+
+- **The pipeline learns.** Starting from random weights, the agent routes
+  96–99% of jobs on healthy chips. It needs 4.8–5.2 cycles per job, against
+  4.5 for the cycle-optimal adaptive shortest path.
+- **Collision marks fix a failure mode.** A deterministic policy fails by
+  looping. After a blocked move the observation is unchanged, so the policy
+  repeats the move until `k_max`. It can also bounce between a few
+  positions. Replaying the first agent's 12 failures shows 11 such loops:
+  5 repeat an invalid action and 6 cycle between two or three positions.
+  The reference code's marks show which side of the droplet was blocked.
+  After ten epochs of fine-tuning with them, 3 of 300 jobs fail. The
+  fault-trained agent with marks takes no invalid action at all.
+- **This budget does not beat the baselines on faulty chips.** The best DRL
+  agents route 94% of the faulty jobs. The health-agnostic baseline routes
+  95–96%, and the formal router, which solves the routing MDP exactly on the
+  sensed health map, routes 99%. Fault fine-tuning did not help within ten
+  epochs. The training budget here is a small fraction of the paper's
+  (smaller network, half-length epochs, 10 fault epochs), so this is a
+  pipeline check, not a replication of Sec. VI. It also sets the bar for new
+  agents: the formal router with the adaptive step (99%, 5.4 cycles).
+
+```bash
+C=configs/training/validation_16x16.yaml
+meda train -c $C
+meda train -c $C --set name=validation_16x16_faults10 --set env.fault_fraction=0.1 \
+    --set init_from=runs/validation_16x16/seed_0/best_model.zip --set schedule.epochs=10
+meda train -c $C --set name=validation_16x16_marks --set env.mark_collisions=true \
+    --set init_from=runs/validation_16x16/seed_0/best_model.zip --set schedule.epochs=10
+meda train -c $C --set name=validation_16x16_marks_faults10 --set env.mark_collisions=true \
+    --set env.fault_fraction=0.1 --set schedule.epochs=10 \
+    --set init_from=runs/validation_16x16_marks/seed_0/best_model.zip
+# one table row per model (add --set env.fault_fraction=0.1 --set env.hidden_defect_fraction=0.05
+# for the faulty columns); baseline/formal rows: --routers baseline formal [--step-mode adaptive]
+meda compare -c $C -m runs/validation_16x16/seed_0 --routers drl --jobs 300 --seed 0
+```
+
+The first run predates some later fixes. For example, evaluation jobs now
+come from a random stream separate from the dynamics, and every epoch now
+starts with fresh environments. A rerun therefore gives similar but not
+identical curves. The progress logs of all four runs are in
+`docs/figures/`. The README episode (`meda render`) shows the fault-trained
+agent with marks.

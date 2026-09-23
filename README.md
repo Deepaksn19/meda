@@ -25,6 +25,13 @@ time. The paper trains a PPO agent with a CNN policy that reads the health
 map and steers each droplet around degraded regions. The agent uses an
 8-direction action space whose step size adapts to the droplet size.
 
+<p align="center">
+  <img src="docs/figures/episode_16x16_faults10.gif" alt="A trained agent routes a droplet around faulty electrodes" width="256">
+</p>
+<p align="center"><sub>A trained agent (16×16 chip, 10% faults) routes a 6×6 droplet (blue) to its
+goal (green). It sidesteps the faulty electrodes (red) in front of the goal. Gray is sensed
+degradation, and the lighter area is the routing zone. Made with <code>meda render</code>.</sub></p>
+
 ```
  observation (3 x 30 x 30)           CNN (Table I)                 action
  ┌ health (masked to routing zone) ┐  conv3x3-64 ─ conv3x3-128 ─    one of N S E W NE NW SE SW
@@ -62,8 +69,10 @@ environment (`scripts/evaluate_reference_model.py`), it routes **100% of
 training log (99.8–100%, ≈10.5 cycles). This agent never saw our code, so the
 simulator reproduces the original dynamics, action semantics and job
 distribution. See [docs/RESULTS.md](docs/RESULTS.md) for this check and the
-others: reward/distance statistics, health-aware vs. health-agnostic routing
-and bioassay timings.
+others: reward/distance statistics, health-aware vs. health-agnostic routing,
+bioassay timings, and a CPU training run on 16×16 chips. That run learns to
+route 96–99% of jobs on healthy chips. It also sets the bar a new agent
+should beat on faulty chips: the MDP-optimal formal router.
 
 ## Installation
 
