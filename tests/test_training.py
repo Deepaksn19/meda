@@ -180,6 +180,32 @@ def test_trainer_smoke(tmp_path):
     pd.testing.assert_frame_equal(pd.read_csv(tmp_path / "run" / "progress.csv"), history, check_dtype=False)
 
 
+def test_saved_models_do_not_pickle_the_lr_schedule(tmp_path):
+    import json
+    import zipfile
+
+    from stable_baselines3 import PPO
+
+    cfg = load_config(None, TINY + ["schedule.epochs=1"])
+    Trainer(cfg, tmp_path / "run").run()
+    with zipfile.ZipFile(tmp_path / "run" / "model.zip") as z:
+        data = json.loads(z.read("data"))
+    assert "lr_schedule" not in data and "learning_rate" not in data
+    model = PPO.load(tmp_path / "run" / "model.zip", device="cpu")
+    assert model.policy.optimizer.param_groups[0]["lr"] > 0
+
+
+def test_old_pickled_schedule_still_loads():
+    import pickle
+
+    lr = DynamicLearningRate()
+    state = lr.__dict__.copy()
+    state.pop("_rollout")  # as pickled before the attribute existed
+    restored = DynamicLearningRate.__new__(DynamicLearningRate)
+    restored.__setstate__(state)
+    assert restored(0.5) > 0 and pickle.loads(pickle.dumps(restored))(1.0) == pytest.approx(3.5e-4)
+
+
 def test_transfer_curriculum_copies_weights(tmp_path):
     base = tmp_path / "base.yaml"
     cfg = load_config(None, TINY)

@@ -276,7 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--assay", default="covid-rat", help="covid-rat | covid-pcr | simple")
     p.add_argument("--model", "-m", help="trained agent for the drl router (60x30 chip)")
     p.add_argument("--routers", nargs="+", default=["baseline", "formal", "drl"])
-    p.add_argument("--step-mode", default="single", choices=["single", "double", "adaptive"])
+    p.add_argument("--step-mode", default="double", choices=["single", "double", "adaptive"],
+                   help="step mode of the baseline and formal routers (default: double, the "
+                        "MEDAX model the reference Fig. 9 driver uses)")
     p.add_argument("--trials", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-initial-actuations", type=int, default=399)

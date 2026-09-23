@@ -48,6 +48,8 @@ class EnvConfig:
     #: disabled every action moves the droplet by ``fixed_step`` MCs per axis.
     adaptive_step: bool = True
     fixed_step: int = 1
+    #: Step of the ordinal moves in fixed-step mode (``None``: ``fixed_step``).
+    diagonal_step: Optional[int] = None
     #: ``k_max = kmax_alpha * (W_h + H_h)`` (Sec. IV-B, ``alpha in [1, 2]``).
     kmax_alpha: float = 1.0
     #: Fraction of MCs made fully degraded (and visible to the health
@@ -136,6 +138,8 @@ class MEDARoutingEnv(gym.Env):
             config = EnvConfig.from_dict(merged)
         elif overrides:
             config = dataclasses.replace(config, **overrides)
+        if config.obs_size is not None and not isinstance(config.obs_size, tuple):
+            config = dataclasses.replace(config, obs_size=tuple(config.obs_size))
         self.config: EnvConfig = config
         self.render_mode = render_mode
         self.width, self.height = config.width, config.height
@@ -188,6 +192,11 @@ class MEDARoutingEnv(gym.Env):
         faults_pending = False
         if chip is not None:
             # externally managed chip (bioassay execution): keep its wear
+            if chip.shape != (self.width, self.height):
+                raise ValueError(
+                    f"chip is {chip.width}x{chip.height} but the environment is "
+                    f"{self.width}x{self.height}"
+                )
             self.chip = chip
         else:
             self.chip = self._own_chip
@@ -227,6 +236,7 @@ class MEDARoutingEnv(gym.Env):
             action,
             self.config.adaptive_step,
             self.config.fixed_step,
+            self.config.diagonal_step,
         )
         valid = plan.valid
         if not valid:
@@ -262,7 +272,11 @@ class MEDARoutingEnv(gym.Env):
         )
 
     def _sample_job(self, avoid_faults: bool) -> RoutingJob:
-        """Sample a job; on a persistent chip, avoid endpoints on faulty MCs."""
+        """Sample a job; on a persistent chip, avoid endpoints on faulty MCs.
+
+        Gives up after 100 attempts (only possible on extremely faulty chips)
+        and then returns the last sample.
+        """
         job = self.sampler.sample()
         if not (avoid_faults and self.config.protect_endpoints):
             return job

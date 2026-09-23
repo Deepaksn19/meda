@@ -53,6 +53,11 @@ class DynamicLearningRate:
         self._rollout = 0
         self._learn_total = 1
 
+    def __setstate__(self, state: dict) -> None:
+        # tolerate schedules pickled by older versions of this class
+        self.__init__()
+        self.__dict__.update(state)
+
     # ----------------------------------------------------------- epochs
     def start_epoch(self, num_timesteps: int, epoch_steps: int, rollout_steps: int = 0) -> None:
         """Call before ``model.learn(epoch_steps, reset_num_timesteps=False)``.

@@ -21,15 +21,17 @@ degraded therefore stays stuck, as in Fig. 14(b)-(c).
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from ..core.actions import DIRECTIONS, Action
 from ..core.geometry import Rect
 from .base import Router, RoutingState
 
 #: ``step_mode`` -> ``(adaptive_step, fixed_step)`` of :class:`Router`.
-#: ``"single"``/``"double"`` move 1/2 MCs per axis and cycle (the MEDAY/MEDAX
-#: models of [18]); ``"adaptive"`` uses Algorithm 1.
+#: ``"single"`` moves 1 MC per axis and cycle (the MEDAY model of [18]);
+#: ``"double"`` moves up to 2 MCs in cardinal directions and 1 MC per axis
+#: diagonally (MEDAX, see :data:`DIAGONAL_STEPS`); ``"adaptive"`` uses
+#: Algorithm 1.
 STEP_MODES: Dict[str, Tuple[bool, int]] = {
     "single": (False, 1),
     "double": (False, 2),
@@ -38,6 +40,17 @@ STEP_MODES: Dict[str, Tuple[bool, int]] = {
 
 #: Inverse of :data:`DIRECTIONS`: unit vector ``(ux, uy)`` -> action.
 _ACTION_OF: Dict[Tuple[int, int], Action] = {vec: act for act, vec in DIRECTIONS.items()}
+
+
+#: Step of the ordinal (diagonal) directions for each ``step_mode``; ``None``
+#: means "same as ``fixed_step``".  The double-step model of [18]
+#: (``BiochipClass.m``) has ``aNN/aSS/aEE/aWW`` but no double-diagonal action.
+DIAGONAL_STEPS: Dict[str, Optional[int]] = {"single": None, "double": 1, "adaptive": None}
+
+
+def diagonal_step_for(step_mode: str) -> Optional[int]:
+    parse_step_mode(step_mode)  # validates the name
+    return DIAGONAL_STEPS[step_mode]
 
 
 def parse_step_mode(step_mode: str) -> Tuple[bool, int]:
@@ -86,6 +99,7 @@ class ShortestPathRouter(Router):
     def __init__(self, step_mode: str = "single") -> None:
         self.step_mode = step_mode
         self.adaptive_step, self.fixed_step = parse_step_mode(step_mode)
+        self.diagonal_step = diagonal_step_for(step_mode)
 
     def act(self, state: RoutingState) -> Action:
         return shortest_path_action(state.droplet, state.goal)

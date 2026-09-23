@@ -10,6 +10,13 @@ pre-ages the chip with ``n_ij ~ U{0, 399}`` actuations
 parameters are ``tau ~ U(0.5, 0.7)``, ``c ~ U(500, 800)`` (Sec. V-A).  The
 curve is the empirical CDF of the cycle counts (``meda_utils.plotProbVsCycles``).
 
+Note that both reference implementations actually ran their bioassays with
+the fixed parameters ``tau = 0.7``, ``c = 200`` (the ``MEDAEnv`` defaults,
+which ``setState`` never overrides; ``C2Range = 200`` in the MATLAB
+``TestBiochipV13.m``), i.e. much faster aging than Sec. V-A.  To reproduce
+that setting pass ``degradation=DegradationConfig(tau_range=(0.7, 0.7),
+c_range=(200.0, 200.0))`` to :func:`run_trials`.
+
 Seeding: trial ``i`` derives its chip and movement random streams from
 ``SeedSequence(seed).spawn(n)[i]``, so different routers evaluated with the
 same seed face exactly the same chips (common random numbers) and results do
@@ -89,6 +96,12 @@ class BenchmarkSummary:
         return dataclasses.asdict(self)
 
 
+def _trial_cycles(cycles: Sequence[float]) -> np.ndarray:
+    """Per-trial cycle counts as floats, failed trials (``inf`` or NaN) as ``inf``."""
+    data = np.asarray(cycles, dtype=np.float64).ravel()
+    return np.where(np.isnan(data), np.inf, data)
+
+
 def completion_cdf(
     cycles: Sequence[float], k_grid: Optional[Sequence[float]] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -96,10 +109,10 @@ def completion_cdf(
 
     Matches ``meda_utils.plotProbVsCycles``: by default ``k`` runs over the
     integers from ``min - 1`` to ``max + 1`` of the observed cycle counts.
-    Failed trials (``inf``) never count as completed but stay in the
+    Failed trials (``inf`` or NaN) never count as completed but stay in the
     denominator, so the curve saturates at the success rate.
     """
-    data = np.sort(np.asarray(cycles, dtype=np.float64).ravel())
+    data = np.sort(_trial_cycles(cycles))
     if data.size == 0:
         raise ValueError("no trials")
     if k_grid is None:
@@ -116,7 +129,9 @@ def completion_cdf(
 
 def cycles_at_probability(cycles: Sequence[float], p: float = 0.9) -> float:
     """Smallest ``k`` with ``P[K <= k] >= p`` (inf if never reached)."""
-    data = np.sort(np.asarray(cycles, dtype=np.float64).ravel())
+    if not 0.0 < p <= 1.0:
+        raise ValueError(f"p must lie in (0, 1], got {p}")
+    data = np.sort(_trial_cycles(cycles))
     if data.size == 0:
         raise ValueError("no trials")
     idx = int(np.ceil(p * data.size - 1e-9)) - 1
@@ -129,7 +144,7 @@ def summarize(cycles: Sequence[float], p: float = 0.9) -> BenchmarkSummary:
     ``p`` is the probability level of ``k_at_p90`` (0.9 as quoted in Sec. V-B:
     "COVID-PCR within k = 762 with probability p > 0.9").
     """
-    data = np.asarray(cycles, dtype=np.float64).ravel()
+    data = _trial_cycles(cycles)
     ok = data[np.isfinite(data)]
     n = int(data.size)
     has = ok.size > 0
@@ -169,10 +184,10 @@ def run_trials(
     seed: Optional[int] = 0,
     chip_factory: Optional[ChipFactory] = None,
     *,
-    max_initial_actuations: int = 399,
+    max_initial_actuations: Optional[int] = None,
     fault_fraction: float = 0.0,
     hidden_defect_fraction: float = 0.0,
-    fault_cluster: int = 2,
+    fault_cluster: Optional[int] = None,
     degradation: Optional[DegradationConfig] = None,
     progress: Optional[ProgressCallback] = None,
     start_index: int = 0,
@@ -182,24 +197,30 @@ def run_trials(
 
     Returns the per-trial cycle counts (``np.inf`` for failed trials) as a
     float array and their :func:`summarize`.  The chip keyword arguments
-    configure the default :class:`AgedChipFactory`; ``executor_kwargs`` are
-    passed on to :class:`BioassayExecutor` (``kmax_alpha``, ``on_timeout``,
+    configure the default :class:`AgedChipFactory` (``None``: its defaults,
+    ``max_initial_actuations=399``, ``fault_cluster=2``) and are rejected
+    together with a custom ``chip_factory``; ``executor_kwargs`` are passed
+    on to :class:`BioassayExecutor` (``kmax_alpha``, ``on_timeout``,
     ``max_cycles``, ...).  ``progress(i, n_trials, result)`` is called after
     trial ``i`` (1-based) with its :class:`BioassayResult`.  ``start_index``
     selects the first trial, so ``n`` trials can be split into chunks (e.g.
     across processes) that reproduce a single run exactly.
     """
     assay = get_bioassay(bioassay) if isinstance(bioassay, str) else bioassay
+    chip_options = {
+        "max_initial_actuations": max_initial_actuations,
+        "fault_fraction": fault_fraction or None,
+        "hidden_defect_fraction": hidden_defect_fraction or None,
+        "fault_cluster": fault_cluster,
+        "degradation": degradation,
+    }
+    given = {k: v for k, v in chip_options.items() if v is not None}
     if chip_factory is None:
-        chip_factory = AgedChipFactory(
-            max_initial_actuations=max_initial_actuations,
-            fault_fraction=fault_fraction,
-            hidden_defect_fraction=hidden_defect_fraction,
-            fault_cluster=fault_cluster,
-            degradation=degradation,
+        chip_factory = AgedChipFactory(**given)
+    elif given:
+        raise ValueError(
+            f"{sorted(given)} only apply to the default chip factory, not to a custom chip_factory"
         )
-    elif fault_fraction or hidden_defect_fraction or degradation is not None:
-        raise ValueError("fault/degradation options only apply to the default chip factory")
     cycles = np.full(int(n_trials), np.inf)
     for i, (chip_rng, move_rng) in enumerate(trial_rngs(seed, int(n_trials), start_index)):
         chip = chip_factory(assay, chip_rng)

@@ -29,14 +29,17 @@ from meda_routing.bioassay import (
     trial_rngs,
 )
 from meda_routing.core.actions import DIRECTIONS, Action
-from meda_routing.core.biochip import MEDABiochip
+from meda_routing.core.biochip import DegradationConfig, MEDABiochip
 from meda_routing.core.geometry import Droplet, chip_rect
-from meda_routing.core.jobs import hazard_bounds
-from meda_routing.routers.base import Router, RoutingState
+from meda_routing.core.jobs import RoutingJob, hazard_bounds
+from meda_routing.routers.base import Router, RoutingState, run_job
 
-REFERENCE_SGS = os.path.join(
-    "/tmp/claude-0/-home-user-meda/24c6dded-d602-513e-be3e-82a0cac03391/scratchpad",
-    "research/melfar87_MEDA/meda_sgs.py",
+REFERENCE_SGS = os.environ.get(
+    "MEDA_REFERENCE_SGS",
+    os.path.join(
+        "/tmp/claude-0/-home-user-meda/24c6dded-d602-513e-be3e-82a0cac03391/scratchpad",
+        "research/melfar87_MEDA/meda_sgs.py",
+    ),
 )
 
 _ACTION_OF = {vec: act for act, vec in DIRECTIONS.items()}
@@ -55,6 +58,14 @@ class GreedyRouter(Router):
         ux = _sign(state.goal.xa - state.droplet.xa)
         uy = _sign(state.goal.ya - state.droplet.ya)
         return _ACTION_OF.get((ux, uy), Action.N)
+
+
+class SingleStepGreedyRouter(GreedyRouter):
+    """Greedy directions with one MC per axis and cycle (no Algorithm 1)."""
+
+    name = "greedy-single"
+    adaptive_step = False
+    fixed_step = 1
 
 
 class StallRouter(GreedyRouter):
@@ -303,8 +314,136 @@ def test_actuation_union_counts_each_mc_once():
 
 def test_zero_length_job_completes_immediately():
     dr = (3, 3, 6, 6)
-    result = BioassayExecutor(_single("Mag", [dr], [dr]), GreedyRouter, healthy_chip()).run()
+    made: List[str] = []
+
+    def factory(key: str) -> Router:
+        made.append(key)
+        return GreedyRouter()
+
+    result = BioassayExecutor(_single("Mag", [dr], [dr]), factory, healthy_chip()).run()
     assert result.success and result.cycles == 0 and result.job_records[0].success
+    assert made == []  # like run_job: no router is created (or synthesized) for it
+
+
+def test_actuation_union_partial_overlap():
+    # two split halves whose target footprints share 2 x 4 MCs: 16 + 16 - 8
+    chip = healthy_chip(30, 30)
+    assay = _single("Spt", [(5, 5, 8, 8), (7, 5, 10, 8)], [(7, 5, 10, 8), (9, 5, 12, 8)])
+    result = BioassayExecutor(assay, GreedyRouter, chip, np.random.default_rng(0)).run()
+    assert result.success and result.cycles == 1
+    assert result.total_actuations == 24 == int(chip.actuations.sum())
+    assert chip.actuations.max() == 1
+    assert chip.actuations[9:11, 5:9].all()  # the shared MCs, actuated once
+
+
+@pytest.mark.parametrize("router_cls", [GreedyRouter, SingleStepGreedyRouter])
+def test_single_job_matches_run_job(router_cls):
+    """One routed job evolves exactly as under ``run_job``: same physics, RNG use and wear."""
+    start, goal = Droplet(27, 8, 30, 11), Droplet(13, 8, 16, 11)  # COVID-PCR n13
+    assay = Bioassay("t", 60, 30, (MicrofluidicOperation("m", "Thm", starts=[start], goals=[goal]),))
+    job = RoutingJob(start, goal, hazard_bounds(start, goal, 60, 30, 3))
+    outcomes = set()
+    for seed in range(6):
+        chip = aged_chip(seed, assay)
+        chip_ref = chip.copy()
+        rec = BioassayExecutor(
+            assay, router_cls, chip, np.random.default_rng(seed), on_timeout="fail"
+        ).run().job_records[0]
+        ref = run_job(router_cls(), job, chip_ref, np.random.default_rng(seed))
+        assert (rec.success, rec.cycles, rec.invalid_actions) == (
+            ref.success, ref.cycles, ref.invalid_actions
+        )
+        np.testing.assert_array_equal(chip.actuations, chip_ref.actuations)
+        outcomes.add(rec.cycles)
+    assert len(outcomes) > 1  # the aged chips make the movement stochastic
+
+
+def test_collision_marks_persist_like_run_job():
+    """The marks of the last invalid action persist through valid ones (env / run_job)."""
+
+    class Recorder(Router):
+        name = "recorder"
+
+        def __init__(self) -> None:
+            self.marks: List[tuple] = []
+
+        def act(self, state: RoutingState) -> Action:
+            self.marks.append(tuple(state.collision))
+            if state.k == 0:
+                return Action.S  # invalid: the droplet touches the zone's south edge
+            return GreedyRouter.act(self, state)
+
+    start, goal = Droplet(5, 0, 8, 3), Droplet(9, 6, 12, 9)
+    assay = Bioassay("t", 30, 30, (MicrofluidicOperation("m", "Mag", starts=[start], goals=[goal]),))
+    routers: List[Recorder] = []
+
+    def factory() -> Router:
+        routers.append(Recorder())
+        return routers[-1]
+
+    BioassayExecutor(assay, factory, healthy_chip(30, 30), np.random.default_rng(0)).run()
+    ref = Recorder()
+    run_job(ref, RoutingJob(start, goal, hazard_bounds(start, goal, 30, 30, 3)),
+            healthy_chip(30, 30), np.random.default_rng(0))
+    south = (False, True, False, False)
+    assert ref.marks[0] == (False,) * 4 and ref.marks[1:] == [south] * (len(ref.marks) - 1)
+    assert routers[0].marks == ref.marks and len(ref.marks) >= 3
+
+
+def test_router_factory_contract():
+    # a Router class is called without arguments, never with the job key
+    class NeedsArg(GreedyRouter):
+        def __init__(self, model) -> None:
+            self.model = model
+
+    with pytest.raises(TypeError):
+        BioassayExecutor(simple(), NeedsArg, healthy_chip()).run()
+    # the two jobs of the mix must not share one (stateful) router instance
+    shared = GreedyRouter()
+    with pytest.raises(ValueError, match="fresh instance"):
+        BioassayExecutor(simple(), lambda: shared, healthy_chip()).run()
+    # sequential jobs may reuse an instance once the previous job is over
+    seq = Bioassay("seq", 30, 30, (
+        MicrofluidicOperation("a", "Mag", starts=[(2, 2, 5, 5)], goals=[(8, 2, 11, 5)]),
+        MicrofluidicOperation("b", "Mag", pre=("a",), starts=[(8, 2, 11, 5)], goals=[(8, 9, 11, 12)]),
+    ))
+    assert BioassayExecutor(seq, lambda: shared, healthy_chip(30, 30)).run().success
+
+
+def test_on_timeout_skip_successor_starts_at_listed_location():
+    """Reference behaviour: a skipped job's successor picks its droplet up where the graph says."""
+    seq = Bioassay("seq", 30, 30, (
+        MicrofluidicOperation("a", "Mag", starts=[(2, 0, 5, 3)], goals=[(12, 0, 15, 3)]),
+        MicrofluidicOperation("b", "Mag", pre=("a",), starts=[(12, 0, 15, 3)], goals=[(12, 8, 15, 11)]),
+    ))
+
+    def factory(key: str) -> Router:
+        return StallRouter(10**6) if key == "a.J0" else GreedyRouter()
+
+    result = BioassayExecutor(seq, factory, healthy_chip(30, 30), on_timeout="skip").run()
+    a, b = result.job_records
+    assert a.timed_out and not a.success and a.cycles == a.k_max == 19 + 7
+    # b starts at its listed location although droplet a never left (2, 0, 5, 3)
+    assert b.start == Droplet(12, 0, 15, 3) and b.success and b.start_cycle == a.k_max
+    assert result.success and result.cycles == a.k_max + b.cycles
+    # the same graph under "continue" must physically finish job a first
+    result = BioassayExecutor(seq, factory, healthy_chip(30, 30), on_timeout="continue",
+                              max_cycles=200).run()
+    assert result.failure == "max_cycles"
+
+
+def test_executor_deterministic_under_seed():
+    assay = covid_rat()
+
+    def run(move_seed: int):
+        chip = aged_chip(11, assay)
+        res = BioassayExecutor(assay, GreedyRouter, chip, np.random.default_rng(move_seed)).run()
+        return res, chip
+
+    (r1, c1), (r2, c2), (r3, _) = run(5), run(5), run(6)
+    assert r1.success and r1 == r2
+    np.testing.assert_array_equal(c1.actuations, c2.actuations)
+    assert [r.cycles for r in r1.job_records] != [r.cycles for r in r3.job_records]
 
 
 # J0 of the simple assay: k_max = 16 + 25 = 41, J1: 17 + 25 = 42.
@@ -398,6 +537,12 @@ def test_aged_chip_factory():
         assert not faulty.faults[sx, sy].any() and not faulty.hidden_defects[sx, sy].any()
     fresh = AgedChipFactory(max_initial_actuations=0)(assay, np.random.default_rng(0))
     assert fresh.actuations.sum() == 0
+    # the fixed parameters the reference bioassay runs actually used
+    ref = AgedChipFactory(
+        degradation=DegradationConfig(tau_range=(0.7, 0.7), c_range=(200.0, 200.0))
+    )(assay, np.random.default_rng(0))
+    assert np.all(ref.tau == 0.7) and np.all(ref.c == 200.0)
+    assert ref.actuations.max() <= 399 and ref.actuations.max() > 300
 
 
 def test_completion_cdf_and_summary():
@@ -452,12 +597,34 @@ def test_run_trials_deterministic_and_progress():
     np.testing.assert_array_equal(cycles[3:], tail)
 
 
+def test_failed_trials_as_nan_and_probability_bounds():
+    # NaN marks a failed trial exactly like inf (as in the Fig. 9 plot helper)
+    k, p = completion_cdf([5, np.nan, 7, np.inf])
+    assert (k[0], k[-1], p[-1]) == (4, 8, 0.5)
+    assert cycles_at_probability([1, np.nan], 0.5) == 1
+    assert cycles_at_probability([1, np.nan], 0.9) == np.inf
+    s = summarize([10, np.nan])
+    assert (s.n_success, s.mean_cycles, s.k_at_p90) == (1, 10, np.inf)
+    for bad in (0.0, -0.1, 1.5):
+        with pytest.raises(ValueError):
+            cycles_at_probability([1, 2], bad)
+
+
 def test_run_trials_failures_and_options():
     cycles, summary = run_trials("simple", GreedyRouter, 3, seed=0, max_cycles=3)
     assert np.all(np.isinf(cycles)) and summary.success_rate == 0.0
     assert np.isnan(summary.mean_cycles)
-    with pytest.raises(ValueError):
-        run_trials("simple", GreedyRouter, 1, chip_factory=AgedChipFactory(), fault_fraction=0.1)
+    # chip options configure the default factory and are never silently ignored
+    for option in (
+        {"fault_fraction": 0.1},
+        {"max_initial_actuations": 0},
+        {"fault_cluster": 3},
+        {"degradation": DegradationConfig()},
+    ):
+        with pytest.raises(ValueError):
+            run_trials("simple", GreedyRouter, 1, chip_factory=AgedChipFactory(), **option)
+    cycles, _ = run_trials("simple", GreedyRouter, 2, seed=0, max_initial_actuations=0)
+    assert list(cycles) == [11, 11]  # never actuated MCs: D = 1, deterministic movement
     cycles, _ = run_trials(
         "simple", GreedyRouter, 2, seed=0, fault_fraction=0.1, hidden_defect_fraction=0.02,
         on_timeout="continue",

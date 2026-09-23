@@ -39,11 +39,13 @@ class DRLRouter(Router):
         fixed_step: int = 1,
         mark_collisions: bool = False,
         deterministic: bool = True,
+        diagonal_step: Optional[int] = None,
     ) -> None:
         self.model = model
         self.obs_size = tuple(obs_size) if obs_size is not None else None
         self.adaptive_step = adaptive_step
         self.fixed_step = fixed_step
+        self.diagonal_step = diagonal_step
         self.mark_collisions = mark_collisions
         self.deterministic = deterministic
         expected = model.observation_space.shape
@@ -73,6 +75,7 @@ class DRLRouter(Router):
             fixed_step=env.get("fixed_step", 1),
             mark_collisions=env.get("mark_collisions", False),
             deterministic=deterministic,
+            diagonal_step=env.get("diagonal_step"),
         )
 
     def observation(self, state: RoutingState) -> np.ndarray:
@@ -107,4 +110,5 @@ class DRLRouter(Router):
             self.fixed_step,
             self.mark_collisions,
             self.deterministic,
+            self.diagonal_step,
         )

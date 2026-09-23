@@ -288,11 +288,8 @@ def test_adaptive_step_equals_reference_parameterized_step(rng):
     for _ in range(20000):
         d, g = random_pair(rng)
         action = Action(int(rng.integers(NUM_ACTIONS)))
-        assert adaptive_step(d, g, action) == reference_step(d, g, action, parm_step=True), (
-            d,
-            g,
-            action,
-        )
+        expected = reference_step(d, g, action, parm_step=True)
+        assert adaptive_step(d, g, action) == expected, (d, g, action)
 
 
 # ===================================================================== unit_step

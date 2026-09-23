@@ -48,9 +48,11 @@ class Router(ABC):
 
     #: Short name used in logs, tables and plot legends.
     name: str = "router"
-    #: Use Algorithm 1's adaptive step (True) or ``fixed_step`` MCs per axis.
+    #: Use Algorithm 1's adaptive step (True) or ``fixed_step`` MCs per axis;
+    #: ``diagonal_step`` (default ``fixed_step``) applies to ordinal moves.
     adaptive_step: bool = True
     fixed_step: int = 1
+    diagonal_step: Optional[int] = None
 
     def reset(self, job: RoutingJob, chip: MEDABiochip) -> None:  # noqa: B027
         """Called once at the start of every routing job."""
@@ -94,7 +96,10 @@ def run_job(
     for k in range(1, k_max + 1):
         state = RoutingState(chip, droplet, job.goal, job.hazard, k - 1, k_max, collision)
         action = router.act(state)
-        plan = plan_move(droplet, job.goal, job.hazard, action, router.adaptive_step, router.fixed_step)
+        plan = plan_move(
+            droplet, job.goal, job.hazard, action,
+            router.adaptive_step, router.fixed_step, router.diagonal_step,
+        )
         invalid += int(not plan.valid)
         if not plan.valid:  # marks of the last invalid action persist (reference)
             collision = plan.collision

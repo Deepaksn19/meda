@@ -16,7 +16,9 @@ follows the authors' reference scheduler (``melfar87/MEDA``,
    ``hazard_bounds(start, goal, W, H, 3)`` (``MEDAEnv.setState``).  All jobs
    observe the chip as it was at the start of the cycle, plan a move and
    sample its outcome with the shared physics of :mod:`meda_routing.core.dynamics`
-   against one snapshot of the effective degradation.
+   against one snapshot of the effective degradation.  A single job therefore
+   evolves exactly as under :func:`meda_routing.routers.base.run_job` (same
+   observations, collision marks, patterns and random draws).
 3. **Actuation**: the actuation patterns of all jobs are OR-ed, so an MC used
    by two jobs is actuated once (``np.clip(m_pattern, 0, 1)`` in the
    reference), and the union is applied to the chip's wear counters.
@@ -62,7 +64,9 @@ from ..routers.base import Router, RoutingState
 from .library import Bioassay, JobSpec, MicrofluidicOperation
 
 #: ``router_factory()`` or ``router_factory(job_key)`` with ``job_key`` such as
-#: ``"n08.J1"``; must return a fresh :class:`Router` for every routing job.
+#: ``"n08.J1"``; must return a fresh :class:`Router` for every routing job.  The
+#: key is passed only to a non-class callable with a required positional
+#: parameter; a :class:`Router` subclass is called without arguments.
 RouterFactory = Union[Callable[[], Router], Callable[[str], Router]]
 
 TIMEOUT_MODES = ("continue", "skip", "fail")
@@ -141,7 +145,14 @@ class _ActiveJob:
 
 
 def _wants_key(factory: Callable) -> bool:
-    """True if ``factory`` has a required positional parameter (the job key)."""
+    """True if ``factory`` has a required positional parameter (the job key).
+
+    A class (e.g. ``ShortestPathRouter``) is always called without arguments:
+    one whose ``__init__`` needs an argument is not a valid factory and must
+    fail loudly instead of silently receiving the job key as that argument.
+    """
+    if inspect.isclass(factory):
+        return False
     try:
         sig = inspect.signature(factory)
     except (TypeError, ValueError):
@@ -264,16 +275,25 @@ class BioassayExecutor:
             )
             record.hazard = hazard
             record.k_max = max(1, int(np.ceil(self.kmax_alpha * (hazard.width + hazard.height))))
+        if spec.start == spec.goal:
+            # Nothing to move; like run_job, no router is created or reset.
+            record.success = True
+            record.end_cycle = self.cycle
+            return record
+        if not spec.dispense:
+            assert record.hazard is not None
             router = (
                 self.router_factory(spec.key) if self._factory_wants_key else self.router_factory()
             )
-            router.reset(RoutingJob(spec.start, spec.goal, hazard), self.chip)
+            if any(other.router is router for other in self._active):
+                # reset() would silently re-target the other job's router
+                raise ValueError(
+                    f"{spec.key}: router_factory returned a Router that is already routing "
+                    "another job; it must return a fresh instance for every job"
+                )
+            router.reset(RoutingJob(spec.start, spec.goal, record.hazard), self.chip)
             job.router = router
-        if spec.start == spec.goal:  # nothing to move
-            record.success = True
-            record.end_cycle = self.cycle
-        else:
-            self._active.append(job)
+        self._active.append(job)
         return record
 
     # ------------------------------------------------------ control cycle
@@ -316,9 +336,14 @@ class BioassayExecutor:
             plan = plan_move(
                 job.droplet, rec.goal, rec.hazard, action,
                 job.router.adaptive_step, job.router.fixed_step,
+                getattr(job.router, "diagonal_step", None),
             )
             rec.invalid_actions += int(not plan.valid)
-            job.collision = plan.collision
+            if not plan.valid:
+                # The marks of the last invalid action persist through valid
+                # actions, exactly as in run_job and MEDARoutingEnv.step
+                # (reference envs/meda.py only writes them on invalid moves).
+                job.collision = plan.collision
             plans.append(plan)
 
         # Execute: sample every outcome against one degradation snapshot and

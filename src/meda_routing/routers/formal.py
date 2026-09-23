@@ -61,7 +61,7 @@ from ..core.geometry import Droplet, Rect, chip_rect
 from ..core.jobs import RoutingJob
 from ..core.movement import action_flags, footprint_mask, move_distribution
 from .base import Router, RoutingState
-from .baseline import parse_step_mode
+from .baseline import diagonal_step_for, parse_step_mode
 
 #: Values closer than this are treated as equal when breaking ties.
 DEFAULT_TIE_TOLERANCE = 1e-9
@@ -119,6 +119,8 @@ class FormalStrategy:
     #: ``values[t, s]``: probability of reaching the goal within ``t`` cycles
     #: from ``s`` under ``policy`` (maximal up to the tie tolerance).
     values: np.ndarray
+    #: Step of the ordinal moves (``None``: same as ``fixed_step``).
+    diagonal_step: Optional[int] = None
 
     # --------------------------------------------------------------- states
     @property
@@ -171,6 +173,7 @@ def _build_transitions(
     degradation: np.ndarray,
     adaptive: bool,
     fixed_step: int,
+    diagonal_step: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Sparse transition table of the job MDP.
 
@@ -194,7 +197,7 @@ def _build_transitions(
             s = ix * ny + iy
             droplet = Droplet.at(x0 + ix, y0 + iy, w, h)
             for a in actions:
-                plan = plan_move(droplet, goal, hazard, a, adaptive, fixed_step)
+                plan = plan_move(droplet, goal, hazard, a, adaptive, fixed_step, diagonal_step)
                 nominal[s, a] = plan.target.manhattan(goal)
                 if s == goal_id:
                     continue
@@ -225,6 +228,7 @@ def synthesize(
     adaptive: bool = False,
     fixed_step: int = 1,
     tie_tolerance: float = DEFAULT_TIE_TOLERANCE,
+    diagonal_step: Optional[int] = None,
 ) -> FormalStrategy:
     """Solve ``Pmax=? [F<=horizon goal]`` for a droplet of ``goal``'s size.
 
@@ -244,7 +248,7 @@ def synthesize(
     goal = Droplet(*goal.as_tuple())
     size = goal.size
     pair, nxt, prob, nominal, goal_id = _build_transitions(
-        goal, hazard, size, degradation, adaptive, fixed_step
+        goal, hazard, size, degradation, adaptive, fixed_step, diagonal_step
     )
     num_states = nominal.shape[0]
     rows = np.arange(num_states)
@@ -287,6 +291,7 @@ def synthesize(
         fixed_step=fixed_step,
         policy=policy,
         values=values,
+        diagonal_step=diagonal_step,
     )
 
 
@@ -325,6 +330,7 @@ class FormalRouter(Router):
     ) -> None:
         self.step_mode = step_mode
         self.adaptive_step, self.fixed_step = parse_step_mode(step_mode)
+        self.diagonal_step = diagonal_step_for(step_mode)
         self.horizon = None if horizon is None else _check_horizon(horizon)
         self.cache_size = int(cache_size)
         self.tie_tolerance = _check_tie_tolerance(tie_tolerance)
@@ -350,6 +356,7 @@ class FormalRouter(Router):
                 k,
                 self.adaptive_step,
                 self.fixed_step,
+                self.diagonal_step,
                 levels,
                 np.ascontiguousarray(health[sx, sy]).tobytes(),
             )
@@ -366,6 +373,7 @@ class FormalRouter(Router):
                 self.adaptive_step,
                 self.fixed_step,
                 self.tie_tolerance,
+                self.diagonal_step,
             )
             if key is not None:
                 self._cache[key] = strategy

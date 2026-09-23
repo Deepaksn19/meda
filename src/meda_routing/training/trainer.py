@@ -36,6 +36,12 @@ from .config import TrainConfig
 from .evaluation import evaluate_model
 from .lr_schedule import DynamicLearningRate
 
+#: Not stored in saved models: the learning-rate schedule object is only
+#: needed during training, and pickling it would tie every checkpoint to the
+#: exact definition of :class:`DynamicLearningRate`.  Loaded models fall back
+#: to SB3's default (constant) learning rate.
+SAVE_EXCLUDE = ["learning_rate", "lr_schedule"]
+
 PROGRESS_COLUMNS = [
     "epoch",
     "timesteps",
@@ -187,11 +193,11 @@ class Trainer:
                 }
                 self.history.append(row)
                 pd.DataFrame(self.history, columns=PROGRESS_COLUMNS).to_csv(progress_csv, index=False)
-                model.save(self.run_dir / "model.zip")
+                model.save(self.run_dir / "model.zip", exclude=SAVE_EXCLUDE)
                 key = (metrics["success_rate"], -metrics["mean_cycles"])
                 if key > best_key:
                     best_key = key
-                    model.save(self.run_dir / "best_model.zip")
+                    model.save(self.run_dir / "best_model.zip", exclude=SAVE_EXCLUDE)
                 self._log(
                     f"[{cfg.name}] epoch {epoch:3d}/{sched.epochs}  "
                     f"success {metrics['success_rate']:6.1%}  score {metrics['mean_score']:8.2f}  "

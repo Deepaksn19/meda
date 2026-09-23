@@ -67,7 +67,19 @@ COVID-RAT on a pre-aged 60×30 chip (`meda bioassay --assay covid-rat
 formal 237 (paper, Fig. 9: roughly 190–235 for both). The DRL curve
 requires the `covid_60x30` agent (see the README).
 
-## 5. Learning on a reduced problem (CPU)
+## 5. Runtime (Sec. II-D, V-B)
+
+| | this repository (1 CPU thread) | paper |
+|---|---|---|
+| DRL decision per control cycle (observation + Table I CNN) | 14.8 ms | < 0.1 s; required < 200 ms |
+| formal strategy per routing job (60×30 chip, 4×4 droplet) | 0.08–0.10 s on average, 0.37 s max | 5–48 s with PRISM-games |
+
+Our formal router solves the same single-droplet MDP with vectorized value
+iteration. PRISM-games builds and solves a stochastic-game model from
+scratch, which explains the gap. The paper's scalability argument against
+formal synthesis concerns much larger chips and full bioassays.
+
+## 6. Learning on a reduced problem (CPU)
 
 See the curves produced by the 16×16 validation run below (added when the run
 completes).

@@ -9,7 +9,7 @@ these functions, so every policy is evaluated with exactly the same physics.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -29,11 +29,25 @@ class MovePlan:
 
 
 def step_size(
-    droplet: Droplet, goal: Rect, action: Action, adaptive: bool = True, fixed_step: int = 1
+    droplet: Droplet,
+    goal: Rect,
+    action: Action,
+    adaptive: bool = True,
+    fixed_step: int = 1,
+    diagonal_step: Optional[int] = None,
 ) -> Tuple[int, int]:
-    """Signed step ``(lambda_x, lambda_y)``: Algorithm 1 or a fixed step."""
+    """Signed step ``(lambda_x, lambda_y)``: Algorithm 1 or a fixed step.
+
+    With fixed steps, ``diagonal_step`` (default: ``fixed_step``) sets the
+    step of the ordinal directions.  The double-step model of [18] has
+    double moves ``aNN, aSS, aEE, aWW`` but no double-diagonal action, i.e.
+    ``fixed_step=2, diagonal_step=1``.
+    """
     if adaptive:
         return adaptive_step(droplet, goal, action)
+    ux, uy = DIRECTIONS[Action(action)]
+    if ux and uy and diagonal_step is not None:
+        return unit_step(droplet, goal, action, diagonal_step)
     return unit_step(droplet, goal, action, fixed_step)
 
 
@@ -44,6 +58,7 @@ def plan_move(
     action: Action,
     adaptive: bool = True,
     fixed_step: int = 1,
+    diagonal_step: Optional[int] = None,
 ) -> MovePlan:
     action = Action(int(action))
     if not is_valid_action(droplet, hazard, action):
@@ -55,7 +70,7 @@ def plan_move(
             uy > 0 and droplet.yb >= hazard.yb,
         )
         return MovePlan(action, False, droplet, collision)
-    step = step_size(droplet, goal, action, adaptive, fixed_step)
+    step = step_size(droplet, goal, action, adaptive, fixed_step, diagonal_step)
     target = clamp_into(droplet.shift(*step), hazard)
     return MovePlan(action, True, target, (False, False, False, False))
 

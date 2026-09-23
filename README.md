@@ -54,6 +54,17 @@ the first author's public reference code,
 the saved weights and training logs of the authors' trained model. Every
 decision is listed in [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md).
 
+## Validation
+
+The authors published their trained 30×30 agent. Loaded into this
+environment (`scripts/evaluate_reference_model.py`), it routes **100% of
+random jobs successfully in 10.1 cycles** on average, matching its own
+training log (100%, ≈10.5 cycles). This agent never saw our code, so the
+simulator reproduces the original dynamics, action semantics and job
+distribution. See [docs/RESULTS.md](docs/RESULTS.md) for this check and the
+others: reward/distance statistics, health-aware vs. health-agnostic routing
+and bioassay timings.
+
 ## Installation
 
 ```bash

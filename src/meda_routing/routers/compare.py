@@ -67,7 +67,12 @@ def compare_routers(
 
 
 def summarize_comparison(df: pd.DataFrame) -> pd.DataFrame:
-    """Success rate and cycle statistics per router."""
+    """Success rate, cycle statistics and decision latency per router.
+
+    ``ms_per_job`` includes one-off work at the start of a job (e.g. the
+    formal router's synthesis); ``ms_per_cycle`` is the average wall time per
+    control cycle, to compare with the paper's 200 ms budget (Sec. II-D).
+    """
 
     grouped = df.groupby("router", sort=False)
     summary = pd.DataFrame(
@@ -78,6 +83,10 @@ def summarize_comparison(df: pd.DataFrame) -> pd.DataFrame:
             "mean_cycles_success": df[df["success"]].groupby("router", sort=False)["cycles"].mean(),
             "invalid_actions_per_job": grouped["invalid_actions"].mean(),
             "ms_per_job": 1e3 * grouped["seconds"].mean(),
+            # decision latency per control cycle (Sec. II-D: must stay < 200 ms)
+            "ms_per_cycle": 1e3 * (df["seconds"] / df["cycles"].clip(lower=1))
+            .groupby(df["router"], sort=False)
+            .mean(),
         }
     )
     return summary.reindex(grouped.size().index)

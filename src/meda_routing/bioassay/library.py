@@ -147,7 +147,9 @@ class MicrofluidicOperation:
 
 
 def _as_droplet(r: Rect | Sequence[int]) -> Droplet:
-    if isinstance(r, Droplet):
+    # Exact type: dataclass equality never matches a Rect (or a Droplet
+    # subclass) against a Droplet, and the executor detects arrival with ``==``.
+    if type(r) is Droplet:
         return r
     xa, ya, xb, yb = tuple(r)
     return Droplet(int(xa), int(ya), int(xb), int(yb))

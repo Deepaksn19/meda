@@ -527,34 +527,24 @@ def test_hidden_defects_block_movement_but_not_sensing():
 
 
 # ======================================================== Monte-Carlo checks
+# (name, droplet (x, y, w, h), goal south-west corner, action, adaptive step)
 MC_SCENARIOS = [
-    # (name, droplet, goal, action, adaptive)
-    ("cardinal E, unit step", Droplet.at(6, 6, 2, 2), Droplet.at(15, 6, 2, 2), Action.E, False),
-    ("cardinal N, adaptive 2", Droplet.at(6, 3, 4, 4), Droplet.at(6, 11, 4, 4), Action.N, True),
-    ("ordinal SW, unit step", Droplet.at(9, 9, 2, 2), Droplet.at(1, 1, 2, 2), Action.SW, False),
-    (
-        "ordinal NE, adaptive (2, 2)",
-        Droplet.at(4, 3, 4, 4),
-        Droplet.at(12, 10, 4, 4),
-        Action.NE,
-        True,
-    ),
-    ("multi-step W, adaptive 3", Droplet.at(12, 5, 6, 6), Droplet.at(0, 5, 6, 6), Action.W, True),
-    (
-        "ordinal NW, adaptive (3, 2)",
-        Droplet.at(11, 2, 6, 5),
-        Droplet.at(1, 9, 6, 5),
-        Action.NW,
-        True,
-    ),
-    ("capped SE, adaptive (1, 2)", Droplet.at(5, 9, 5, 5), Droplet.at(6, 3, 5, 5), Action.SE, True),
+    ("cardinal E, unit step", (6, 6, 2, 2), (15, 6), Action.E, False),
+    ("cardinal N, adaptive 2", (6, 3, 4, 4), (6, 11), Action.N, True),
+    ("ordinal SW, unit step", (9, 9, 2, 2), (1, 1), Action.SW, False),
+    ("ordinal NE, adaptive (2, 2)", (4, 3, 4, 4), (12, 10), Action.NE, True),
+    ("multi-step W, adaptive 3", (12, 5, 6, 6), (0, 5), Action.W, True),
+    ("ordinal NW, adaptive (3, 2)", (11, 2, 6, 5), (1, 9), Action.NW, True),
+    ("capped SE, adaptive (1, 2)", (5, 9, 5, 5), (6, 3), Action.SE, True),
 ]
 
 
 @pytest.mark.parametrize(
-    "name, droplet, goal, action, adaptive", MC_SCENARIOS, ids=[s[0] for s in MC_SCENARIOS]
+    "name, spec, goal_xy, action, adaptive", MC_SCENARIOS, ids=[s[0] for s in MC_SCENARIOS]
 )
-def test_sample_move_matches_exact_distribution(name, droplet, goal, action, adaptive):
+def test_sample_move_matches_exact_distribution(name, spec, goal_xy, action, adaptive):
+    droplet = Droplet.at(*spec)
+    goal = Droplet.at(*goal_xy, spec[2], spec[3])
     rng = np.random.default_rng(zlib.crc32(name.encode()))  # hash() is salted per process
     width, height = 20, 16
     hazard = Rect(0, 0, width - 1, height - 1)

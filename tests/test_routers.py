@@ -138,7 +138,8 @@ def test_baseline_minimum_cycles_on_ideal_chip(step_mode):
         if step_mode == "single":
             expected = max(dx, dy)
         elif step_mode == "double":
-            expected = max(math.ceil(dx / 2), math.ceil(dy / 2))
+            # MEDAX model of [18]: double cardinal moves, single diagonal moves
+            expected = min(dx, dy) + math.ceil(abs(dx - dy) / 2)
         else:
             lx, ly = max_reliable_step(job.start)
             expected = max(math.ceil(dx / lx), math.ceil(dy / ly))
