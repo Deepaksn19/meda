@@ -1,0 +1,16 @@
+# Agent for the COVID-19 bioassay benchmarks (Fig. 9). The bioassays of the
+# reference code run on a 60x30 chip (W=60, H=30) with 4x4 droplets on a
+# pre-aged chip (n_ij ~ U{0, 399}). The observation is resampled to 30x30,
+# so the agent is initialized from H*(30, 0%) (transfer learning).
+name: covid_60x30
+init_from: runs/paper_30x30_healthy/seed_0
+output_dir: runs
+env:
+  width: 60
+  height: 30
+  obs_size: [30, 30]
+  degradation:
+    initial_actuations: uniform
+    max_initial_actuations: 399
+schedule:
+  epochs: 25

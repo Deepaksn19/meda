@@ -1,0 +1,21 @@
+# CPU-friendly variant for laptops and CI: the smaller CNN of the authors'
+# reference code (32/64/64 filters, FC 128) and fewer, shorter epochs.
+# Everything else follows the paper defaults.
+name: quick_cpu_30x30
+output_dir: runs
+env:
+  width: 30
+  height: 30
+  obs_size: [30, 30]
+agent:
+  extractor: cnn
+  extractor_kwargs:
+    channels: [32, 64, 64]
+    hidden_dim: 128
+ppo:
+  device: cpu
+schedule:
+  epochs: 10
+  steps_per_epoch: 16384
+eval:
+  episodes: 200

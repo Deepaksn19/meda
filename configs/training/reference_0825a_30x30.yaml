@@ -1,0 +1,16 @@
+# Mirrors the authors' logged training run "0825a" (melfar87/MEDA,
+# policy/0825a_030x030_E100_NPS64.pickle): 30x30 healthy chips, droplet sizes
+# 4x4..6x6 only, Table I CNN, PPO2(n_steps=64, nminibatches=16), 2^14 steps
+# per epoch, 500 evaluation jobs. Its logged success rate first reached
+# 90% / 99% / 100% after 24 / 27 / 29 epochs, converging to ~10.5 cycles and
+# a mean score of ~111. Use it to validate this reimplementation.
+name: reference_0825a_30x30
+output_dir: runs
+env:
+  width: 30
+  height: 30
+  obs_size: [30, 30]
+  jobs:
+    droplet_sizes: [[4, 4], [5, 4], [5, 5], [6, 5], [6, 6]]
+schedule:
+  epochs: 40
