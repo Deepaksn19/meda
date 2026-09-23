@@ -8,8 +8,10 @@ the degradation state it needs (Sec. III-A, Eq. 1: ``D = tau ** (n / c)``):
 * a *worn* chip uses the paper's parameter ranges (Sec. V-A) and random
   initial wear, so all four 2-bit health levels occur.
 
-Every fixture that draws random numbers is seeded, so the suite is
-reproducible.  No fixture is ``autouse``.
+Every fixture that draws random numbers is seeded.  Environments from
+``make_env`` start unseeded; every test that steps or samples one seeds it
+through ``reset(seed=...)`` first, so the suite is reproducible.  No fixture
+is ``autouse``.
 """
 
 from __future__ import annotations

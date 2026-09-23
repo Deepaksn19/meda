@@ -883,6 +883,20 @@ def test_collision_cue_marks_blocked_edges(make_env, ideal_chip_factory):
     assert set(np.unique(plain.step(Action.SW)[0][1]).tolist()) == {0.0, 1.0}
 
 
+def test_collision_cue_marks_east_and_north_edges(make_env, ideal_chip_factory):
+    """Reference ``_getObs``: ``obs[x1-1, y0:y1]`` (east) and ``obs[x0:x1, y1-1]`` (north)."""
+    env = make_env(width=16, height=12, obs_size=None, mark_collisions=True)
+    job = RoutingJob(Droplet.at(12, 8, 3, 3), Droplet.at(1, 1, 3, 3), Rect(1, 1, 14, 10))
+    reset_on(env, job, ideal_chip_factory(16, 12))
+    obs, _, _, _, info = env.step(Action.NE)  # the droplet touches the zone's NE corner
+    assert info["invalid_action"]
+    d = env.droplet
+    channel = obs[1, d.ya : d.yb + 1, d.xa : d.xb + 1]  # rows = y, cols = x
+    assert np.all(channel[:, -1] == 0.5) and np.all(channel[-1, :] == 0.5)  # east col, north row
+    assert np.all(channel[:-1, :-1] == 1.0)
+    assert obs[1].sum() == pytest.approx(9 - 5 * 0.5)
+
+
 def test_collision_cue_persists_like_reference(make_env, ideal_chip_factory):
     """Reference ``MEDAEnv.collision``: written by invalid actions only, cleared at reset."""
     env = make_env(width=16, height=12, obs_size=None, mark_collisions=True)

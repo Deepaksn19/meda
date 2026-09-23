@@ -406,6 +406,7 @@ def test_movement_uses_true_degradation_not_health_reading():
 
 # =================================================== exact distribution
 def test_move_distribution_is_a_distribution_inside_the_box(rng):
+    stochastic = 0
     for _ in range(300):
         start, goal, hazard, deg = random_case(rng)
         action = Action(int(rng.integers(8)))
@@ -422,6 +423,8 @@ def test_move_distribution_is_a_distribution_inside_the_box(rng):
             assert hazard.contains(outcome)
             # never beyond the target, never backwards
             assert lo_x <= outcome.xa <= hi_x and lo_y <= outcome.ya <= hi_y
+        stochastic += len(dist) > 1
+    assert stochastic > 100  # most cases have several possible outcomes
 
 
 def test_matches_reference_update_pattern(rng):
