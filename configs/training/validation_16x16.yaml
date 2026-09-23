@@ -1,0 +1,25 @@
+# Reduced problem for checking the learning pipeline on a CPU (docs/RESULTS.md,
+# sec. 6): healthy 16x16 chips seen at native resolution, the paper's droplet
+# sizes and reward, and the smaller CNN of the authors' reference code. One
+# epoch takes 1-2 min on 4 CPU cores.
+#
+# The documented runs used vf_coef 0.5, the default at the time; 0.25 is the
+# weight that matches PPO2 (IMPLEMENTATION_NOTES), so set ppo.vf_coef=0.25 for
+# a paper-faithful baseline.
+name: validation_16x16
+output_dir: runs
+env:
+  width: 16
+  height: 16
+  obs_size: [16, 16]       # native resolution: no resampling
+agent:
+  extractor: cnn
+  extractor_kwargs: {channels: [32, 64, 64], hidden_dim: 128}
+ppo:
+  vf_coef: 0.5
+  device: cpu
+schedule:
+  epochs: 40
+  steps_per_epoch: 8192    # 2^13 (paper: 2^14 on 30x30)
+eval:
+  episodes: 300
