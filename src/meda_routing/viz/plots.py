@@ -41,6 +41,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
+from matplotlib import patheffects
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PatchCollection
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize, to_rgb, to_rgba
@@ -145,8 +146,12 @@ def _save(fig: Figure, out_path: PathLike, pdf: bool, dpi: int) -> Path:
 
 
 def _nice_ticks(integer: bool = False) -> MaxNLocator:
-    """Ticks on multiples of 1, 2 or 5 (the paper's 0, 5, 10, ... epochs)."""
-    return MaxNLocator(integer=integer, steps=[1, 2, 5, 10])
+    """Ticks on multiples of 1, 2 or 5 (the paper's 0, 5, 10, ... epochs).
+
+    ``nbins="auto"`` scales the tick count with the axis length, so labels
+    do not collide on short axes (small panels, chips only a few MCs high).
+    """
+    return MaxNLocator(nbins="auto", integer=integer, steps=[1, 2, 5, 10])
 
 
 def _style_axes(ax: Axes) -> None:
@@ -250,6 +255,8 @@ def aggregate_histories(
 def _metric_labels(labels: Optional[Sequence[str]]) -> Tuple[str, str, str]:
     if labels is None:
         return TRAINING_LABELS
+    if isinstance(labels, str):  # would otherwise be split into characters
+        raise TypeError("labels must be a sequence of three strings, not a string")
     labels = tuple(str(label) for label in labels)
     if len(labels) != 3:
         raise ValueError("labels must name the score, success-rate and cycles series")
@@ -330,7 +337,9 @@ def _draw_training(
     ax.yaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_locator(_nice_ticks())
     ax.xaxis.set_major_locator(_nice_ticks(integer=True))
-    ax.set_xlim(left=min(0.0, float(ax.dataLim.x0)))
+    # Epochs from 0 as in the paper.  auto=None keeps x-autoscaling on, so data
+    # drawn later into the same axes (another draw_training call) is not clipped.
+    ax.set_xlim(left=min(0.0, float(ax.dataLim.x0)), auto=None)
     ax.set_xlabel("Training Epochs")
     ax.set_ylabel("Score, success rate (%), cycles")
     _style_axes(ax)
@@ -592,9 +601,12 @@ def _draw_track(ax: Axes, track: List[Tuple[int, int, int, int]], goal: Tuple[in
     Returns the legend handle of the track and whether the droplet stalled.
     """
     centers = np.array([((xa + xb) / 2.0, (ya + yb) / 2.0) for xa, ya, xb, yb in track])
+    # A light halo keeps dark tracks (e.g. the black Baseline) visible over
+    # fully degraded MCs, which are drawn dark.
+    halo = [patheffects.withStroke(linewidth=3.6, foreground="white", alpha=0.85)]
     (line,) = ax.plot(centers[:, 0], centers[:, 1], color=color, linestyle=linestyle, linewidth=1.8,
                       marker="o", markersize=3, solid_capstyle="round", dash_capstyle="round",
-                      label=label, zorder=6)
+                      label=label, zorder=6, path_effects=halo)
     # Cycles spent without moving: circle area grows with the stall length.
     stalled = False
     i = 0
@@ -605,7 +617,7 @@ def _draw_track(ax: Axes, track: List[Tuple[int, int, int, int]], goal: Tuple[in
         if j > i:
             stalled = True
             ax.scatter(*centers[i], s=min(25.0 + 20.0 * (j - i), 400.0), facecolors="none",
-                       edgecolors=color, linewidths=1.0, zorder=6)
+                       edgecolors=color, linewidths=1.0, zorder=6, path_effects=halo)
         i = j + 1
     # Arrow head on the last move.
     moves = [k for k in range(1, len(centers)) if not np.array_equal(centers[k], centers[k - 1])]
@@ -768,7 +780,10 @@ def plot_routing_path(
     Returns the path of the saved figure.
     """
     if out_path is None:
-        raise TypeError("plot_routing_path() missing required argument: 'out_path'")
+        hint = ""
+        if isinstance(faults, (str, os.PathLike)):
+            hint = " (a path was given for 'faults'; pass faults=None or a mask before out_path)"
+        raise TypeError(f"plot_routing_path() missing required argument: 'out_path'{hint}")
     width, height = np.shape(chip_health)
     aspect = height / width
     ax_width = 4.8 if aspect <= 1.2 else max(2.4, 5.8 / aspect)

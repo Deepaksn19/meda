@@ -29,6 +29,7 @@ from matplotlib.animation import PillowWriter
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.text import Text
+from PIL import features
 
 from ..core.actions import Action
 
@@ -42,11 +43,26 @@ _CAPTION_PX = 26
 _DPI = 100
 _TRAIL_COLOR = "#eb6834"
 _INK, _MUTED = "#0b0b0b", "#52514e"
+# Frames must not depend on the user's savefig rc (e.g. transparent PNG output).
+_FRAME_RC = {"savefig.bbox": None, "savefig.transparent": False, "savefig.facecolor": "white"}
 
 
 def frame_scale(width: int, height: int, target: int = TARGET_PIXELS) -> int:
     """Pixels per MC so that the longer chip side spans about ``target`` pixels (1-16)."""
     return int(np.clip(target // max(int(width), int(height), 1), 1, 16))
+
+
+def _animation_path(out_path: Union[str, os.PathLike]) -> Path:
+    """``out_path``, with ``.gif`` appended unless Pillow can animate its suffix.
+
+    Pillow writes animated GIF, APNG (``.png``/``.apng``) and WebP; any other
+    suffix (e.g. ``.mp4``) would only fail when the finished episode is saved.
+    """
+    path = Path(out_path)
+    suffixes = {".gif", ".png", ".apng"} | ({".webp"} if features.check("webp") else set())
+    if path.suffix.lower() not in suffixes:
+        path = path.with_name(path.name + ".gif")
+    return path
 
 
 def _as_action(action: Any) -> int:
@@ -107,7 +123,8 @@ def record_episode(
     Args:
         env: a :class:`MEDARoutingEnv` (or a wrapper around one).
         policy_fn: ``policy_fn(obs, env) -> action``, called once per cycle.
-        out_path: GIF file (``.gif`` is appended when there is no suffix).
+        out_path: GIF file; ``.gif`` is appended unless the suffix names an
+            animated format Pillow writes (``.gif``, ``.png``/``.apng``, ``.webp``).
         max_steps: optional cap on the number of control cycles; by default
             the episode runs until it terminates or is truncated at ``k_max``.
         fps: frames (control cycles) per second.
@@ -134,9 +151,7 @@ def record_episode(
     render = getattr(env, "render_frame", None) or getattr(base, "render_frame", None)
     if render is None:
         raise TypeError("env must provide render_frame(scale), like MEDARoutingEnv")
-    path = Path(out_path)
-    if not path.suffix:
-        path = path.with_suffix(".gif")
+    path = _animation_path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     obs, info = env.reset(seed=seed, options=options)
@@ -164,7 +179,7 @@ def record_episode(
     steps, total_reward, frames = 0, 0.0, 0
     terminated = truncated = False
     # every frame must be rendered at the figure's own size
-    with mpl.rc_context({"savefig.bbox": None}):
+    with mpl.rc_context(_FRAME_RC):
         writer.setup(fig, str(path), dpi=_DPI)
         caption(0, f"start  {distance(info)}".strip())
         trail_update()
@@ -179,12 +194,17 @@ def record_episode(
                 droplets.append(base.droplet)
             image.set_data(np.asarray(render(scale=scale)))
             trail_update()
+            k = int(info.get("num_cycles", steps))
             status = f"{_action_name(action)}  {distance(info)}".strip()
-            if terminated:
+            # A timeout may be reported as ``terminated`` (EnvConfig.timeout_terminal),
+            # so success is read from the info dict, not from the done flags.
+            if info.get("is_success", terminated):
                 status = f"{_action_name(action)}  goal reached"
-            elif truncated:
-                status += "  (k_max)"
-            caption(int(info.get("num_cycles", steps)), status)
+            elif terminated or truncated:
+                status += "  (k_max)" if k_max and k >= k_max else "  (ended)"
+            elif max_steps is not None and steps >= max_steps:
+                status += "  (max_steps)"
+            caption(k, status)
             writer.grab_frame()
             frames += 1
         for _ in range(int(round(end_pause * fps))):
