@@ -29,8 +29,8 @@ map and steers each droplet around degraded regions. The agent uses an
   <img src="docs/figures/episode_16x16_faults10.gif" alt="A trained agent routes a droplet around faulty electrodes" width="256">
 </p>
 <p align="center"><sub>A trained agent (16×16 chip, 10% faults) routes a 6×6 droplet (blue) to its
-goal (green). It sidesteps the faulty electrodes (red) in front of the goal. Gray is sensed
-degradation, and the lighter area is the routing zone. Made with <code>meda render</code>.</sub></p>
+goal (green). It sidesteps the faulty electrodes (red) in front of the goal. Made with
+<code>meda render</code>.</sub></p>
 
 ```
  observation (3 x 30 x 30)           CNN (Table I)                 action
