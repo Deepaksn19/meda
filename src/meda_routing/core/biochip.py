@@ -154,7 +154,8 @@ class MEDABiochip:
         ``region`` (default: whole chip) are faulty (Sec. V-B: "a fixed
         percentage of fully degraded MCs are randomly placed in clusters of
         size 2 x 2").  MCs inside any ``protect`` rectangle (e.g. the start
-        and goal droplets) are never made faulty.
+        and goal droplets) are never made faulty, and hidden defects are never
+        placed on sensed faults (or vice versa).
 
         Returns the number of faulty MCs added.
         """
@@ -168,6 +169,8 @@ class MEDABiochip:
         for r in protect:
             px, py = r.slices()
             allowed[px, py] = False
+        # the two kinds of faults never overlap, so each fraction is exact
+        allowed &= ~(self.faults if hidden else self.hidden_defects)
         total = region.area
         goal = int(np.ceil(fraction * total))
         added = 0

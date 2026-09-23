@@ -130,6 +130,15 @@ def load_pretrained_weights(model: PPO, path: Union[str, Path]) -> Path:
     return src
 
 
+def _share_chip_snapshot(train_env: VecEnv, eval_env: VecEnv) -> None:
+    """Give every evaluation env a copy of the (first) training env's chip."""
+    if not isinstance(train_env, DummyVecEnv) or not isinstance(eval_env, DummyVecEnv):
+        raise ValueError("persistent_chip evaluation needs dummy vectorized envs")
+    chip = train_env.envs[0].unwrapped.chip
+    for env in eval_env.envs:
+        env.unwrapped.load_chip(chip.copy())
+
+
 class Trainer:
     """Trains one agent (one seed) for a :class:`TrainConfig`."""
 
@@ -175,12 +184,19 @@ class Trainer:
                 lr.start_epoch(
                     model.num_timesteps, sched.steps_per_epoch, cfg.ppo.n_envs * cfg.ppo.n_steps
                 )
+                # Algorithm 2, line 2 (resample <- True): every epoch starts
+                # with fresh routing jobs, as PPO2.learn() did; SB3 resets the
+                # environments when it has no last observation.
+                model._last_obs = None
                 model.learn(
                     total_timesteps=sched.steps_per_epoch,
                     reset_num_timesteps=False,
                     tb_log_name="ppo",
                     progress_bar=False,
                 )
+                if cfg.env.persistent_chip:
+                    # online mode: evaluate on a snapshot of the chip being adapted to
+                    _share_chip_snapshot(train_env, eval_env)
                 eval_env.seed(cfg.eval.seed)  # same 500 jobs every epoch
                 metrics = evaluate_model(model, eval_env, cfg.eval.episodes, cfg.eval.deterministic)
                 decayed = lr.end_epoch(metrics["success_rate"])

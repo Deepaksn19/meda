@@ -112,11 +112,15 @@ Any config value can be overridden with `--set key=value`. Examples are
 | Fig. 7: healthy chips, sizes 30 … 180 | `meda curriculum -c configs/curricula/traditional_learning.yaml` |
 | Fig. 4: random init vs. transfer learning | `meda curriculum -c configs/curricula/transfer_learning.yaml`, then `meda plot-training runs/traditional_learning/s060_f00 runs/transfer_learning/s060_f00 --labels random transfer` |
 | Fig. 8: 10% / 20% fault injection (transfer) | stages `s030_f10`, `s030_f20`, `s090_f10`, `s090_f20` of the transfer curriculum |
-| Fig. 9: COVID bioassays | `meda train -c configs/training/covid_60x30.yaml`, then `meda bioassay --assay covid-rat --model runs/covid_60x30/seed_0 --trials 1000` (and `--assay covid-pcr`) |
-| Sec. VI: robustness to degraded electrodes | `meda compare ...` as in the quick start, with `env.fault_fraction` 0 and 0.1 |
+| Fig. 9: COVID bioassays | `meda train -c configs/training/covid_60x30.yaml`, then `meda bioassay --assay covid-rat --model runs/covid_60x30/seed_0 --trials 1000 --tau-range 0.7 0.7 --c-range 200 200` (and `--assay covid-pcr`). The two range flags reproduce the degradation the authors used for Fig. 9; leave them out for the Sec. V-A ranges. |
+| Sec. VI: robustness to degraded electrodes | `meda compare ... --k-max 40` as in the quick start, with `env.fault_fraction` 0 and 0.1 (the prototype runs used a 40-cycle budget per task) |
 
-The paper repeats every training experiment five times (`repeats: 5`).
-`meda plot-training runs/<name>` then draws the mean with a min–max band.
+The paper repeats every training experiment five times. The configs default
+to `repeats: 1` to save compute; add `--set repeats=5` for the paper's
+protocol, as `scripts/reproduce_paper.sh` does. `meda plot-training
+runs/<name>` then draws the mean with a min–max band. Compare success rates
+and cycle counts with the paper's figures; the plotted *scores* use a
+different scale (see the implementation notes).
 
 ## Repository layout
 

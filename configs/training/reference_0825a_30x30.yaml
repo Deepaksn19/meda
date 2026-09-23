@@ -4,13 +4,25 @@
 # per epoch, 500 evaluation jobs. Its logged success rate first reached
 # 90% / 99% / 100% after 24 / 27 / 29 epochs, converging to ~10.5 cycles and
 # a mean score of ~111. Use it to validate this reimplementation.
+#
+# Settings of that run that differ from the paper defaults are reproduced
+# here: k_max = W + H of the chip, collision marks in the observation, and a
+# base learning rate halved (no floor) after every epoch with 100% success —
+# visible in the log: 3.5e-4 until epoch 27, 1.7e-4 at epoch 30, 1.1e-5 at 35.
+# Not reproduced: the run's rounded 5-level health readings (the paper's
+# floor quantization is used), fixed tau/c (irrelevant on healthy chips).
 name: reference_0825a_30x30
 output_dir: runs
 env:
   width: 30
   height: 30
   obs_size: [30, 30]
+  kmax_basis: chip
+  mark_collisions: true
   jobs:
     droplet_sizes: [[4, 4], [5, 4], [5, 5], [6, 5], [6, 6]]
 schedule:
   epochs: 40
+  lr_decay: 0.5
+  lr_min: 0.0
+  success_threshold: 0.999

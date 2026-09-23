@@ -154,16 +154,27 @@ class JobSampler:
         return Droplet.at(x, y, w, h)
 
     # ------------------------------------------------------------- public
-    def sample(self) -> RoutingJob:
+    def sample(self, size: Optional[Tuple[int, int]] = None) -> RoutingJob:
+        """Sample a routing job; ``size`` fixes the droplet size ``(w, h)``.
+
+        Jobs whose start equals the goal are redrawn (the reference sampler
+        keeps them, ~0.5% of its jobs, which then end after one cycle).
+        """
         for _ in range(1000):
             if self.config.sampling == "stratified":
-                w, h = self._pop(self._size_buf, self.sizes)  # type: ignore[misc]
+                if size is None:
+                    w, h = self._pop(self._size_buf, self.sizes)  # type: ignore[misc]
+                else:
+                    w, h = size
                 xg, xs = self._pop(self._x_buf, self._x_set), self._pop(self._x_buf, self._x_set)
                 yg, ys = self._pop(self._y_buf, self._y_set), self._pop(self._y_buf, self._y_set)
                 goal = self._center_to_droplet(int(xg), int(yg), w, h)
                 start = self._center_to_droplet(int(xs), int(ys), w, h)
             else:
-                w, h = self.sizes[int(self.rng.integers(len(self.sizes)))]
+                if size is None:
+                    w, h = self.sizes[int(self.rng.integers(len(self.sizes)))]
+                else:
+                    w, h = size
                 goal = self._uniform_droplet(w, h)
                 start = self._uniform_droplet(w, h)
             if start != goal:

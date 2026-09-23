@@ -14,11 +14,12 @@ OUT=${OUT:-runs}
 RES=${RES:-results}
 TRIALS=${TRIALS:-1000}
 JOBS=${JOBS:-500}
-EXTRA=()
+REPEATS=${REPEATS:-5}          # the paper repeats every training experiment 5 times
+EXTRA=(--set repeats=$REPEATS)
 SIZES=(030 060 090 120 150 180)
 TL_ONLY=(); TRAD_ONLY=()
 if [[ "${QUICK:-0}" == "1" ]]; then
-  EXTRA=(--set schedule.epochs=2 --set schedule.steps_per_epoch=2048 --set eval.episodes=50
+  EXTRA=(--set repeats=1 --set schedule.epochs=2 --set schedule.steps_per_epoch=2048 --set eval.episodes=50
          --set "agent.extractor_kwargs={channels: [16, 32, 32], hidden_dim: 64}")
   TRIALS=10; JOBS=50; SIZES=(030 060)
   TL_ONLY=(--only s030_f00 s060_f00 s030_f10 s030_f20)
@@ -47,14 +48,16 @@ done
 echo "== Fig. 9: COVID bioassays on a 60x30 chip"
 meda train -c configs/training/covid_60x30.yaml -o "$OUT" --set init_from="$OUT/paper_30x30_healthy/seed_0" "${EXTRA[@]}"
 for assay in covid-rat covid-pcr; do
+  # degradation of the authors' Fig. 9 runs (fixed tau = 0.7, c = 200)
   meda bioassay --assay "$assay" --model "$OUT/covid_60x30/seed_0" \
-    --routers baseline formal drl --trials "$TRIALS" --out "$RES/fig9"
+    --routers baseline formal drl --trials "$TRIALS" --out "$RES/fig9" \
+    --tau-range 0.7 0.7 --c-range 200 200
 done
 
 echo "== Sec. VI: robustness to degraded electrodes (simulation analogue)"
 for f in 0.0 0.1; do
   meda compare --model "$OUT/transfer_learning/s030_f10/seed_0" --routers drl baseline formal \
-    --jobs "$JOBS" --set env.fault_fraction=$f --set env.hidden_defect_fraction=0.05 \
+    --jobs "$JOBS" --k-max 40 --set env.fault_fraction=$f --set env.hidden_defect_fraction=0.05 \
     --out "$RES/sec6_faults${f}.csv"
 done
 echo "done: figures and tables in $RES/"

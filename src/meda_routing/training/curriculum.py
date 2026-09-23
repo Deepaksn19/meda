@@ -30,8 +30,16 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
-from .config import TrainConfig, apply_override
+from .config import TrainConfig, apply_override, coerce_numbers
 from .trainer import Trainer
+
+
+def _seed_number(path: Path) -> int:
+    """``seed_10`` sorts after ``seed_2``."""
+    try:
+        return int(path.name.split("_", 1)[1])
+    except (IndexError, ValueError):
+        return 1 << 62
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,9 +64,13 @@ def load_curriculum(path: Union[str, Path], overrides: Optional[List[str]] = Non
         with open(base_path, "r", encoding="utf-8") as fh:
             base = yaml.safe_load(fh) or {}
     base = deep_merge(base, data.get("defaults", {}))
-    for item in overrides or []:
-        apply_override(base, item)
-    return {"name": data.get("name", path.stem), "base": base, "stages": data.get("stages", [])}
+    return {
+        "name": data.get("name", path.stem),
+        "base": coerce_numbers(base),
+        "stages": coerce_numbers(data.get("stages", [])),
+        # command-line overrides win over the base *and* the stage settings
+        "overrides": list(overrides or []),
+    }
 
 
 def run_curriculum(
@@ -69,19 +81,24 @@ def run_curriculum(
 ) -> Dict[str, List[Path]]:
     """Train all stages in order; returns ``{stage name: [run dirs]}``."""
     spec = load_curriculum(path, overrides)
-    root = Path(output_dir or spec["base"].get("output_dir", "runs")) / spec["name"]
+    base = deep_merge(spec["base"], {})
+    for item in spec["overrides"]:
+        apply_override(base, item)
+    root = Path(output_dir or base.get("output_dir", "runs")) / spec["name"]
     done: Dict[str, List[Path]] = {}
     for stage in spec["stages"]:
         stage = dict(stage)
         name = stage.pop("name")
         init_from = stage.pop("init_from", None)
         data = deep_merge(spec["base"], stage)
+        for item in spec["overrides"]:
+            apply_override(data, item)
         data["name"] = name
         data.pop("init_from", None)
         config = TrainConfig.from_dict(data)
         if only and name not in only:
             # still register existing results so later stages can transfer from them
-            existing = sorted((root / name).glob("seed_*"))
+            existing = sorted((root / name).glob("seed_*"), key=_seed_number)
             if existing:
                 done[name] = existing
             continue

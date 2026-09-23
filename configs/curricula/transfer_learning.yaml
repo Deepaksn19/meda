@@ -23,7 +23,11 @@ stages:
   - name: s180_f00
     init_from: s150_f00
     env: {width: 180, height: 180}
-  # fault-injection chain (Fig. 8): 0% -> 10% -> 20%
+  # fault-injection chain (Fig. 8): 0% -> 10% -> 20% at the same chip size,
+  # as described in Sec. V-B ("we used the agents trained on healthy biochips
+  # to initialize the training against biochips with randomly injected
+  # faults"). Fig. 3(b) instead draws the 10% chain across sizes
+  # (30x30 10% -> 60x60 10%); use init_from: s030_f10 on a 60x60 stage for that.
   - name: s030_f10
     init_from: s030_f00
     env: {width: 30, height: 30, fault_fraction: 0.10}

@@ -52,6 +52,10 @@ class EnvConfig:
     diagonal_step: Optional[int] = None
     #: ``k_max = kmax_alpha * (W_h + H_h)`` (Sec. IV-B, ``alpha in [1, 2]``).
     kmax_alpha: float = 1.0
+    #: ``"hazard"``: ``W_h + H_h`` of the routing zone (Sec. IV-B; reference
+    #: bioassays); ``"chip"``: ``W + H`` of the whole chip (the reference
+    #: training runs, and the ``2(W+H)`` bound also mentioned in Sec. IV-B).
+    kmax_basis: str = "hazard"
     #: Fraction of MCs made fully degraded (and visible to the health
     #: sensors) at the start of each episode, placed in ``fault_cluster``-sized
     #: square clusters (Sec. V-B: 10% / 20% in 2x2 clusters).
@@ -162,10 +166,15 @@ class MEDARoutingEnv(gym.Env):
             dtype=np.float32,
         )
 
+        # Two random streams: ``np_random`` drives the droplet dynamics, while
+        # ``_sample_rng`` draws routing jobs, chip parameters and faults.  With
+        # a fixed seed the sequence of jobs therefore does not depend on how
+        # the policy moved the droplets (fixed evaluation sets, fair comparisons).
         self._np_random, _ = gym.utils.seeding.np_random(None)
-        self._own_chip = MEDABiochip(self.width, self.height, config.degradation, self._np_random)
+        self._sample_rng = np.random.default_rng(self._np_random.integers(2**63))
+        self._own_chip = MEDABiochip(self.width, self.height, config.degradation, self._sample_rng)
         self.chip: MEDABiochip = self._own_chip
-        self.sampler = JobSampler(self.width, self.height, config.jobs, self._np_random)
+        self.sampler = JobSampler(self.width, self.height, config.jobs, self._sample_rng)
         self.job: Optional[RoutingJob] = None
         self.droplet: Optional[Droplet] = None
         self.k = 0
@@ -191,9 +200,10 @@ class MEDARoutingEnv(gym.Env):
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         super().reset(seed=seed)
         if seed is not None:
-            # re-seed the components that share the generator
-            self._own_chip.rng = self.np_random
-            self.sampler.reseed(self.np_random)
+            # re-seed the job/chip stream independently of the dynamics stream
+            self._sample_rng = np.random.default_rng([int(seed), 0x5A3])
+            self._own_chip.rng = self._sample_rng
+            self.sampler.reseed(self._sample_rng)
         options = options or {}
         chip = options.get("chip")
         job = options.get("job")
@@ -289,21 +299,45 @@ class MEDARoutingEnv(gym.Env):
     def _sample_job(self, avoid_faults: bool) -> RoutingJob:
         """Sample a job; on a persistent chip, avoid endpoints on faulty MCs.
 
-        Gives up after 100 attempts (only possible on extremely faulty chips)
-        and then returns the last sample.
+        Keeps the droplet size for 1000 attempts, then allows other sizes; gives
+        up after 2000 attempts (only possible on extremely faulty chips) and
+        returns the last sample.
         """
         job = self.sampler.sample()
         if not (avoid_faults and self.config.protect_endpoints):
             return job
         dead = self.chip.faults | self.chip.hidden_defects
-        for _ in range(100):
+        size = job.droplet_size
+        for attempt in range(2000):
             if not any(dead[r.slices()].any() for r in (job.start, job.goal)):
                 break
-            job = self.sampler.sample()
+            # Keep the drawn droplet size at first: rejecting whole jobs would
+            # favour small droplets, which fit between faults more easily.  Only
+            # if that size finds no fault-free endpoints, try other sizes (on
+            # very faulty chips large droplets rarely fit between faults).
+            job = self.sampler.sample(size=size if attempt < 1000 else None)
         return job
 
+    def load_chip(self, chip: MEDABiochip) -> None:
+        """Make ``chip`` this environment's own (persistent) chip.
+
+        Used to evaluate a policy on a snapshot of the chip a training
+        environment is adapting to (online mode, ``persistent_chip``).
+        """
+        if chip.shape != (self.width, self.height):
+            raise ValueError(f"chip is {chip.width}x{chip.height}, env is {self.width}x{self.height}")
+        self._own_chip = chip
+        self.chip = chip
+        self._chip_ready = True
+
     def _compute_kmax(self, hazard: Rect) -> int:
-        return max(1, int(np.ceil(self.config.kmax_alpha * (hazard.width + hazard.height))))
+        if self.config.kmax_basis == "chip":
+            extent = self.width + self.height
+        elif self.config.kmax_basis == "hazard":
+            extent = hazard.width + hazard.height
+        else:
+            raise ValueError(f"unknown kmax_basis {self.config.kmax_basis!r}")
+        return max(1, int(np.ceil(self.config.kmax_alpha * extent)))
 
     def _get_obs(self) -> np.ndarray:
         return build_observation(

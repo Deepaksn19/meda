@@ -17,7 +17,9 @@ overrides of the (training) config, e.g. ``--set env.fault_fraction=0.1``.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -27,6 +29,22 @@ import yaml
 
 
 # --------------------------------------------------------------- helpers
+def _import_modules(modules: List[str]) -> None:
+    """Import modules that register custom feature extractors (e.g. a GNN).
+
+    The current directory is put on ``sys.path`` first, so that modules of
+    the repository such as ``examples.gnn_extractor_example`` can be found
+    when ``meda`` runs as an installed console script.
+    """
+    if not modules:
+        return
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
+    for module in modules:
+        importlib.import_module(module)
+
+
 def _env_config_from(model: Optional[str], config: Optional[str], overrides: List[str]):
     """Env config of a trained model's run (or a training YAML) plus overrides."""
     from .training.config import TrainConfig, apply_override
@@ -84,8 +102,6 @@ def cmd_train(args: argparse.Namespace) -> None:
     from .training.config import load_config
     from .training.trainer import train
 
-    for module in args.import_module or []:
-        __import__(module)
     config = load_config(args.config, args.set)
     run_dirs = train(config, args.output_dir)
     print("\n".join(str(d) for d in run_dirs))
@@ -94,8 +110,6 @@ def cmd_train(args: argparse.Namespace) -> None:
 def cmd_curriculum(args: argparse.Namespace) -> None:
     from .training.curriculum import run_curriculum
 
-    for module in args.import_module or []:
-        __import__(module)
     done = run_curriculum(args.config, args.output_dir, args.only, args.set)
     for name, dirs in done.items():
         print(f"{name}: {', '.join(str(d) for d in dirs)}")
@@ -112,6 +126,8 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     vec = make_vec(env_config, args.n_envs, args.seed)
     metrics = evaluate_model(model, vec, args.episodes, deterministic=not args.stochastic)
     vec.close()
+    # strict JSON: NaN (e.g. no successful episode) becomes null
+    metrics = {k: (None if isinstance(v, float) and v != v else v) for k, v in metrics.items()}
     print(json.dumps(metrics, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(metrics, indent=2))
@@ -127,7 +143,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
         if i % max(1, n // 10) == 0 or i == n:
             print(f"  {i}/{n} jobs", file=sys.stderr, flush=True)
 
-    df = compare_routers(factories, env_config, args.jobs, args.seed, progress=progress)
+    df = compare_routers(factories, env_config, args.jobs, args.seed, k_max=args.k_max, progress=progress)
     summary = summarize_comparison(df)
     _print_table(summary)
     if args.out:
@@ -144,12 +160,17 @@ def cmd_bioassay(args: argparse.Namespace) -> None:
     assay = get_bioassay(args.assay)
     factories = _router_factories(args.routers, args.model, args.step_mode)
     degradation = None
-    if args.tau_range or args.c_range:
+    # the chips' health sensors must match what a DRL model was trained with
+    uses_drl = args.model is not None and any(r.lower() == "drl" for r in args.routers)
+    health_bits = _env_config_from(args.model, None, []).degradation.health_bits if uses_drl else None
+    if args.tau_range or args.c_range or health_bits is not None:
         from .core.biochip import DegradationConfig
 
+        defaults = DegradationConfig()
         degradation = DegradationConfig(
-            tau_range=tuple(args.tau_range or (0.5, 0.7)),
-            c_range=tuple(args.c_range or (500.0, 800.0)),
+            tau_range=tuple(args.tau_range or defaults.tau_range),
+            c_range=tuple(args.c_range or defaults.c_range),
+            health_bits=health_bits if health_bits is not None else defaults.health_bits,
         )
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -241,11 +262,15 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                        help="config override, e.g. env.fault_fraction=0.1 (repeatable)")
 
+    def add_import(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--import-module", action="append", default=[], metavar="MODULE",
+                       help="module to import first, e.g. one that registers a custom "
+                            "feature extractor (repeatable)")
+
     p = sub.add_parser("train", help="train one agent")
     p.add_argument("--config", "-c", help="training YAML (default: paper defaults)")
     p.add_argument("--output-dir", "-o")
-    p.add_argument("--import-module", action="append",
-                   help="module to import first (e.g. one that registers a custom extractor)")
+    add_import(p)
     add_set(p)
     p.set_defaults(func=cmd_train)
 
@@ -253,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", "-c", required=True, help="curriculum YAML")
     p.add_argument("--output-dir", "-o")
     p.add_argument("--only", nargs="*", help="train only these stages (others are reused)")
-    p.add_argument("--import-module", action="append")
+    add_import(p)
     add_set(p)
     p.set_defaults(func=cmd_curriculum)
 
@@ -266,6 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stochastic", action="store_true", help="sample actions instead of argmax")
     p.add_argument("--device", default="cpu")
     p.add_argument("--out", help="write metrics JSON here")
+    add_import(p)
     add_set(p)
     p.set_defaults(func=cmd_evaluate)
 
@@ -277,7 +303,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="step mode of the baseline and formal routers")
     p.add_argument("--jobs", type=int, default=200)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--k-max", type=int, default=None,
+                   help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")
     p.add_argument("--out", help="CSV with one row per (job, router)")
+    add_import(p)
     add_set(p)
     p.set_defaults(func=cmd_compare)
 
@@ -302,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])
     p.add_argument("--max-cycles", type=int, default=2000)
     p.add_argument("--out", default="results/bioassay")
+    add_import(p)
     p.set_defaults(func=cmd_bioassay)
 
     p = sub.add_parser("plot-training", help="plot training curves (Figs. 4, 7, 8)")
@@ -316,6 +346,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", "-c")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="episode.gif")
+    add_import(p)
     add_set(p)
     p.set_defaults(func=cmd_render)
     return parser
@@ -323,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = build_parser().parse_args(argv)
+    _import_modules(getattr(args, "import_module", None) or [])
     args.func(args)
 
 

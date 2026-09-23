@@ -1,0 +1,110 @@
+"""Regression tests for issues found by the final adversarial review."""
+
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from meda_routing.core import MEDABiochip
+from meda_routing.envs import MEDARoutingEnv
+from meda_routing.training.config import TrainConfig, coerce_numbers, load_config
+from meda_routing.training.curriculum import _seed_number, load_curriculum, run_curriculum
+
+
+def _job_sequence(policy_seed: int, n: int = 15):
+    env = MEDARoutingEnv({"width": 14, "height": 14})
+    env.reset(seed=3)
+    rng = np.random.default_rng(policy_seed)
+    jobs = []
+    for _ in range(n):
+        done = False
+        while not done:
+            *_, terminated, truncated, _ = env.step(int(rng.integers(8)))
+            done = terminated or truncated
+        jobs.append((env.job, env.chip.tau.copy()))
+        env.reset()
+    return jobs
+
+
+def test_job_sequence_does_not_depend_on_the_policy():
+    """Evaluation sees the same jobs every epoch: sampling has its own random stream."""
+    a, b = _job_sequence(1), _job_sequence(2)
+    assert [j for j, _ in a] == [j for j, _ in b]
+    assert all(np.array_equal(ta, tb) for (_, ta), (_, tb) in zip(a, b))
+
+
+def test_ppo_value_loss_weight_matches_ppo2():
+    assert TrainConfig().ppo.vf_coef == 0.25  # PPO2's 0.5 * (0.5 * mean) in SB3 terms
+
+
+def test_scientific_notation_overrides_are_numbers():
+    cfg = load_config(None, ["schedule.lr0=1e-3", "env.fault_fraction=1E-1"])
+    assert cfg.schedule.lr0 == pytest.approx(1e-3) and cfg.env.fault_fraction == pytest.approx(0.1)
+    assert coerce_numbers({"a": ["2e5", "x", "1e"]}) == {"a": [2e5, "x", "1e"]}
+
+
+def test_seed_directories_sort_numerically():
+    paths = [Path("seed_10"), Path("seed_2"), Path("seed_1")]
+    assert [p.name for p in sorted(paths, key=_seed_number)] == ["seed_1", "seed_2", "seed_10"]
+
+
+def test_curriculum_cli_overrides_beat_stage_settings(tmp_path):
+    base = tmp_path / "base.yaml"
+    load_config(
+        None,
+        [
+            "env.width=8",
+            "env.height=8",
+            "env.obs_size=[8,8]",
+            "env.jobs.droplet_sizes=[[2,2]]",
+            "agent.extractor_kwargs={channels: [4], hidden_dim: 8}",
+            "ppo.n_envs=2",
+            "ppo.n_steps=32",
+            "ppo.device=cpu",
+            "schedule.steps_per_epoch=64",
+            "eval.episodes=2",
+            "eval.n_envs=2",
+            "verbose=0",
+        ],
+    ).save_yaml(base)
+    cur = tmp_path / "cur.yaml"
+    cur.write_text(f"name: c\nbase: {base}\nstages:\n  - name: a\n    schedule: {{epochs: 5}}\n")
+    spec = load_curriculum(cur, ["schedule.epochs=1"])
+    assert spec["overrides"] == ["schedule.epochs=1"]
+    done = run_curriculum(cur, output_dir=tmp_path / "runs", overrides=["schedule.epochs=1"])
+    assert load_config(done["a"][0] / "config.yaml").schedule.epochs == 1
+
+
+def test_hidden_defects_never_overlap_sensed_faults():
+    chip = MEDABiochip(30, 30, rng=np.random.default_rng(0))
+    chip.reset()
+    chip.inject_faults(0.2)
+    chip.inject_faults(0.05, hidden=True)
+    assert not (chip.faults & chip.hidden_defects).any()
+    assert chip.hidden_defects.mean() >= 0.05 and chip.faults.mean() >= 0.2
+
+
+def test_persistent_chip_keeps_droplet_sizes_balanced():
+    env = MEDARoutingEnv(
+        {"width": 30, "height": 30, "persistent_chip": True, "chip_seed": 1, "fault_fraction": 0.1}
+    )
+    env.reset(seed=0)
+    counts = Counter()
+    for _ in range(450):
+        env.reset()
+        counts[env.job.droplet_size] += 1
+    assert max(counts.values()) < 2 * min(counts.values())
+
+
+def test_kmax_basis():
+    chip_based = MEDARoutingEnv({"width": 30, "height": 30, "kmax_basis": "chip"})
+    chip_based.reset(seed=0)
+    assert chip_based.k_max == 60
+    zone = MEDARoutingEnv({"width": 30, "height": 30})
+    zone.reset(seed=0)
+    assert zone.k_max == zone.hazard.width + zone.hazard.height
+    with pytest.raises(ValueError):
+        MEDARoutingEnv({"kmax_basis": "nope"}).reset(seed=0)

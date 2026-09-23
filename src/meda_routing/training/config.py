@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -38,6 +39,11 @@ class PPOConfig:
     minibatches of 32 (SB3 ``batch_size`` is the minibatch size).  The other
     values are the PPO2 defaults, including value-function clipping with the
     same range as the policy (PPO2 ``cliprange_vf=None``).
+
+    ``vf_coef``: PPO2 used 0.5, but its value loss is ``0.5 * mean(...)`` while
+    SB3's is a plain mean, so 0.25 in SB3 reproduces PPO2's effective weight.
+    (PPO2 also took the element-wise maximum of the clipped and unclipped
+    value losses; SB3 uses the clipped prediction only.)
     """
 
     n_envs: int = 8
@@ -47,7 +53,7 @@ class PPOConfig:
     gamma: float = 0.99
     gae_lambda: float = 0.95
     ent_coef: float = 0.01
-    vf_coef: float = 0.5
+    vf_coef: float = 0.25
     max_grad_norm: float = 0.5
     clip_range: float = 0.2
     clip_range_vf: Optional[float] = 0.2
@@ -128,7 +134,7 @@ class TrainConfig:
     @classmethod
     def from_yaml(cls, path: Union[str, Path], overrides: Optional[List[str]] = None) -> "TrainConfig":
         with open(path, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
+            data = coerce_numbers(yaml.safe_load(fh) or {})
         for item in overrides or []:
             apply_override(data, item)
         return cls.from_dict(data)
@@ -140,6 +146,24 @@ class TrainConfig:
         data = _plain(self.to_dict())
         with open(path, "w", encoding="utf-8") as fh:
             yaml.safe_dump(data, fh, sort_keys=False)
+
+
+_NUMBER = re.compile(r"[-+]?(\d+\.?\d*|\.\d+)[eE][-+]?\d+")
+
+
+def coerce_numbers(obj: Any) -> Any:
+    """Turn strings such as ``"1e-3"`` into floats.
+
+    YAML 1.1 (PyYAML) only reads scientific notation with a decimal point as
+    a number (``1.0e-3``); ``1e-3`` would otherwise reach the code as a string.
+    """
+    if isinstance(obj, dict):
+        return {k: coerce_numbers(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [coerce_numbers(v) for v in obj]
+    if isinstance(obj, str) and _NUMBER.fullmatch(obj.strip()):
+        return float(obj)
+    return obj
 
 
 def _plain(obj: Any) -> Any:
@@ -156,7 +180,7 @@ def apply_override(data: Dict[str, Any], item: str) -> None:
     if "=" not in item:
         raise ValueError(f"override {item!r} must look like key.subkey=value")
     key, raw = item.split("=", 1)
-    value = yaml.safe_load(raw)
+    value = coerce_numbers(yaml.safe_load(raw))
     node = data
     parts = key.strip().split(".")
     for part in parts[:-1]:
