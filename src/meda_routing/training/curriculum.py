@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 
 from .config import TrainConfig, apply_override, coerce_numbers
+from ..paths import resolve_output_dir
 from .trainer import Trainer, _seed_number, resolve_model_path
 
 
@@ -86,7 +87,7 @@ def run_curriculum(
     base = deep_merge(spec["base"], {})
     for item in spec["overrides"]:
         apply_override(base, item)
-    root = Path(output_dir or base.get("output_dir", "runs")) / spec["name"]
+    root = (Path(output_dir) if output_dir else resolve_output_dir(base.get("output_dir"))) / spec["name"]
     stage_names = [stage.get("name") for stage in spec["stages"]]
     unknown = [name for name in only or [] if name not in stage_names]
     if unknown:

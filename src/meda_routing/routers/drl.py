@@ -16,6 +16,7 @@ import yaml
 from stable_baselines3 import PPO
 
 from ..core.actions import Action
+from ..devices import resolve_device
 from ..envs.observation import build_observation
 from ..training.config import coerce_numbers
 from .base import Router, RoutingState
@@ -57,14 +58,14 @@ class DRLRouter(Router):
     def load(
         cls,
         path: Union[str, Path],
-        device: str = "cpu",
+        device: str = "auto",
         deterministic: bool = True,
     ) -> "DRLRouter":
         """Load ``model.zip`` (or a run directory) and its training config."""
         from ..training.trainer import resolve_model_path
 
         model_path = resolve_model_path(path)
-        model = PPO.load(model_path, device=device)
+        model = PPO.load(model_path, device=resolve_device(device))
         env = _load_env_section(model_path)
         obs_size = env.get("obs_size", (30, 30))
         if obs_size is None:

@@ -79,6 +79,10 @@ class ScheduleConfig:
     #: (``eta_i * sqrt(remaining fraction of the epoch)``, as in the reference
     #: ``LearningRateSchedule``; the paper only specifies the per-epoch base rate).
     intra_epoch: str = "sqrt"
+    #: Save a full model checkpoint ``checkpoints/epoch_XXX.zip`` every this
+    #: many epochs and after the last one (0: only ``model.zip`` and
+    #: ``best_model.zip``).
+    checkpoint_every: int = 5
 
 
 @dataclass
@@ -106,6 +110,8 @@ class TrainConfig:
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     tensorboard: bool = False
+    #: Draw ``training_curves.png`` into the run folder after every epoch.
+    save_plots: bool = True
     verbose: int = 1
 
     # ------------------------------------------------------------- loading
