@@ -1,77 +1,85 @@
 # Paper defaults (Elfar et al., TCAD 2023): single CNN agent trained on healthy
 # 30x30 MEDA biochips for all droplet sizes w,h in {2..6}, 0.8 <= w/h <= 1.25.
 # This is H(30, 0%), the root of the transfer-learning chain in Fig. 3(b).
-name: paper_30x30_healthy
-seed: 0
-repeats: 1                 # the paper repeats every experiment 5 times
-output_dir: runs
+#
+# Every value is tagged with where it comes from:
+#   [PAPER ...]  stated in the paper (section / figure / table)
+#   [REF-CODE]   not in the paper; from the first author's code melfar87/MEDA
+#                (incl. the Stable-Baselines PPO2 defaults it used)
+#   [ASSUMED]    fixed by neither; our choice
+name: paper_30x30_healthy  # [ASSUMED] run name -> runs/paper_30x30_healthy/
+seed: 0                    # [ASSUMED]
+repeats: 1                 # [ASSUMED] to save compute; the paper repeats 5 times [PAPER Sec. V-B]
+output_dir: runs           # [ASSUMED] <project>/runs
 
 env:
-  width: 30
-  height: 30
-  obs_size: [30, 30]       # unified observation (Sec. IV-C)
-  adaptive_step: true      # parameterized action space (Algorithm 1)
-  kmax_alpha: 1.0          # k_max = alpha * (W_h + H_h), alpha in [1, 2]; 2 matches the
-                           # early-epoch cycles of Figs. 4/7 (IMPLEMENTATION_NOTES #8)
-  fault_fraction: 0.0      # healthy chip: actuations reset every episode
-  fault_cluster: 2
-  hidden_defect_fraction: 0.0
-  protect_endpoints: true
-  mark_collisions: false
+  width: 30                # [PAPER Sec. V-B] W = H in {30, 60, 120, 180}
+  height: 30               # [PAPER Sec. V-B]
+  obs_size: [30, 30]       # [PAPER Sec. IV-C] unified 30x30 observation
+  adaptive_step: true      # [PAPER Algorithm 1] parameterized action space
+  kmax_alpha: 1.0          # [PAPER Sec. IV-B] k_max = alpha*(W_h + H_h), alpha in [1, 2]; 1 is [ASSUMED].
+                           #   2 matches the early-epoch cycles of Figs. 4/7 (IMPLEMENTATION_NOTES #8)
+  fault_fraction: 0.0      # [PAPER Sec. V-B] 0% = healthy chip (10% / 20% in Fig. 8)
+  fault_cluster: 2         # [PAPER Sec. V-B] faults in 2x2 clusters
+  hidden_defect_fraction: 0.0  # [ASSUMED] 0 in training; ~5% on the prototypes [PAPER Sec. VI]
+  protect_endpoints: true  # [ASSUMED] no faults under start/goal
+  mark_collisions: false   # [REF-CODE] feature; off since Fig. 2 has no such cue [ASSUMED]
   degradation:
-    tau_range: [0.5, 0.7]  # Sec. V-A
-    c_range: [500.0, 800.0]
-    health_bits: 2         # b (reference code: n_bits=2)
-    initial_actuations: zero
-    max_initial_actuations: 0
+    tau_range: [0.5, 0.7]  # [PAPER Sec. V-A] tau in [0.5, 0.7]
+    c_range: [500.0, 800.0]  # [PAPER Sec. V-A] c in [500, 800]
+    health_bits: 2         # [REF-CODE] n_bits = 2 (paper: b bits, value not given)
+    initial_actuations: zero  # [REF-CODE] no initial wear during training
+    max_initial_actuations: 0  # [REF-CODE]
   jobs:
-    droplet_sizes: [[2, 2], [3, 3], [4, 4], [4, 5], [5, 4], [5, 5], [5, 6], [6, 5], [6, 6]]
-    sampling: stratified   # extra mass on chip edges (dispensers/reservoirs)
-    edge_weight: 0.2
-    uniform_margin: 1
-    hazard_margin: 3       # routing zone = bbox(start, goal) +/- 3 MCs
-  reward:                  # r = a_dis*r_dis + a_ter*r_ter + a_act*r_act (Sec. III-D)
-    alpha_dis: 0.5         # coefficients from the authors' reference code
-    alpha_dis_away: 0.8
-    stall_penalty: 1.0
-    alpha_ter: 100.0
-    alpha_act: 1.0
+    droplet_sizes: [[2, 2], [3, 3], [4, 4], [4, 5], [5, 4], [5, 5], [5, 6], [6, 5], [6, 6]]  # [PAPER Sec. IV-A]
+    sampling: stratified   # [PAPER Sec. IV-A] "stratified"; the exact rule is [REF-CODE]
+    edge_weight: 0.2       # [REF-CODE] W//5 extra copies of each edge coordinate
+    uniform_margin: 1      # [PAPER Sec. IV-A] x_a ~ U{2, W-w-1} for sampling: uniform
+    hazard_margin: 3       # [REF-CODE] routing zone = bbox(start, goal) +/- 3 MCs
+  reward:                  # [PAPER Sec. III-D] form r = a_dis*r_dis + a_ter*r_ter + a_act*r_act
+    alpha_dis: 0.5         # [REF-CODE] the paper gives no coefficients
+    alpha_dis_away: 0.8    # [REF-CODE]
+    stall_penalty: 1.0     # [REF-CODE]
+    alpha_ter: 100.0       # [REF-CODE]
+    alpha_act: 1.0         # [REF-CODE]
 
 agent:
-  extractor: cnn           # Table I
+  extractor: cnn           # [PAPER Table I]
   extractor_kwargs:
-    channels: [64, 128, 128]
-    hidden_dim: 256
+    channels: [64, 128, 128]  # [PAPER Table I] 3x3 convolutions (stride 1, SAME padding: [REF-CODE])
+    hidden_dim: 256        # [PAPER Table I] FC layer
 
 ppo:                       # PPO2 as used by the authors, in SB3 terms
-  n_envs: 8                # eight parallel environments (Sec. V-B)
-  n_steps: 64
-  batch_size: 32           # = 8 * 64 / 16 minibatches
-  n_epochs: 4
-  gamma: 0.99
-  gae_lambda: 0.95
-  ent_coef: 0.01
-  vf_coef: 0.25            # = PPO2's 0.5 (its value loss carries an extra 0.5 factor)
-  max_grad_norm: 0.5
-  clip_range: 0.2
-  clip_range_vf: 0.2
-  vec_env: dummy
-  device: auto
+  n_envs: 8                # [PAPER Sec. V-B] eight parallel environments
+  n_steps: 64              # [REF-CODE]
+  batch_size: 32           # [REF-CODE] = 8 * 64 / 16 minibatches
+  n_epochs: 4              # [REF-CODE] PPO2 default
+  gamma: 0.99              # [REF-CODE] PPO2 default
+  gae_lambda: 0.95         # [REF-CODE] PPO2 default
+  ent_coef: 0.01           # [REF-CODE] PPO2 default
+  vf_coef: 0.25            # [REF-CODE] = PPO2's 0.5 (its value loss carries an extra 0.5 factor)
+  max_grad_norm: 0.5       # [REF-CODE] PPO2 default
+  clip_range: 0.2          # [REF-CODE] PPO2 default
+  clip_range_vf: 0.2       # [REF-CODE] PPO2 default
+  vec_env: dummy           # [ASSUMED]
+  device: auto             # [ASSUMED] local GPU if available, else CPU (the paper used an RTX 6000)
 
 schedule:
-  epochs: 25
-  steps_per_epoch: 16384   # 2^14 (Sec. V-B)
-  lr0: 3.5e-4              # eta_0
-  lr_min: 1.0e-6           # eta_min
-  lr_decay: 0.7            # beta_eta
-  success_threshold: 0.99
-  intra_epoch: sqrt        # reference-code schedule within an epoch
+  epochs: 25               # [PAPER Sec. V-B / Figs. 4, 7] 10-40 epochs; 25 is [ASSUMED]
+  steps_per_epoch: 16384   # [PAPER Sec. V-B] 2^14
+  lr0: 3.5e-4              # [PAPER Sec. IV-B] eta_0
+  lr_min: 1.0e-6           # [PAPER Sec. IV-B] eta_min
+  lr_decay: 0.7            # [PAPER Sec. IV-B] beta_eta
+  success_threshold: 0.99  # [PAPER Sec. IV-B] decay when success > 99%
+  intra_epoch: sqrt        # [REF-CODE] learning-rate schedule within an epoch
+  checkpoint_every: 5      # [ASSUMED] checkpoints/epoch_XXX.zip
 
 eval:
-  episodes: 500            # 500 random routing jobs after every epoch
-  deterministic: true
-  n_envs: 8
-  seed: 10000
+  episodes: 500            # [PAPER Sec. V-B] 500 random routing jobs after every epoch
+  deterministic: true      # [REF-CODE]
+  n_envs: 8                # [ASSUMED] speed only
+  seed: 10000              # [ASSUMED] same 500 jobs every epoch
 
-tensorboard: false
-verbose: 1
+tensorboard: false         # [ASSUMED]
+save_plots: true           # [ASSUMED] training_curves.png in the run folder
+verbose: 1                 # [ASSUMED]

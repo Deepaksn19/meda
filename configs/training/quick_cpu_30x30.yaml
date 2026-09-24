@@ -2,21 +2,25 @@
 # reference code (32/64/64 filters, FC 128), 10 epochs instead of 25 and a
 # 200-job evaluation per epoch instead of 500. Everything else, including
 # the 2^14 training steps per epoch, follows the paper defaults.
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: quick_cpu_30x30
-output_dir: runs
+output_dir: runs             # [ASSUMED]
 env:
-  width: 30
-  height: 30
-  obs_size: [30, 30]
+  width: 30                  # [PAPER Sec. V-B]
+  height: 30                 # [PAPER Sec. V-B]
+  obs_size: [30, 30]         # [PAPER Sec. IV-C]
 agent:
-  extractor: cnn
+  extractor: cnn             # [PAPER Table I] architecture, smaller widths below
   extractor_kwargs:
-    channels: [32, 64, 64]
-    hidden_dim: 128
+    channels: [32, 64, 64]   # [REF-CODE] smaller CNN of my_net.py
+    hidden_dim: 128          # [REF-CODE]
 ppo:
-  device: cpu
+  device: cpu                # [ASSUMED]
 schedule:
-  epochs: 10
-  steps_per_epoch: 16384
+  epochs: 10                 # [ASSUMED]
+  steps_per_epoch: 16384     # [PAPER Sec. V-B] 2^14
 eval:
-  episodes: 200
+  episodes: 200              # [ASSUMED] shorter evaluation (paper: 500)

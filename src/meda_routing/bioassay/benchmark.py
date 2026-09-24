@@ -51,12 +51,12 @@ class AgedChipFactory:
     ``protect_locations`` is set.
     """
 
-    max_initial_actuations: int = 399
-    fault_fraction: float = 0.0
-    hidden_defect_fraction: float = 0.0
-    fault_cluster: int = 2
-    protect_locations: bool = True
-    degradation: Optional[DegradationConfig] = None
+    max_initial_actuations: int = 399  # [REF-CODE] pre-aged chips, n ~ U{0, 399}
+    fault_fraction: float = 0.0  # [ASSUMED] Fig. 9 uses no injected faults
+    hidden_defect_fraction: float = 0.0  # [ASSUMED]
+    fault_cluster: int = 2  # [PAPER Sec. V-B] 2x2 clusters
+    protect_locations: bool = True  # [ASSUMED]
+    degradation: Optional[DegradationConfig] = None  # paper ranges; the authors' Fig. 9 used tau=0.7, c=200 [REF-CODE]
 
     def __call__(self, bioassay: Bioassay, rng: np.random.Generator) -> MEDABiochip:
         base = self.degradation or DegradationConfig()
@@ -127,7 +127,7 @@ def completion_cdf(
     return k, p
 
 
-def cycles_at_probability(cycles: Sequence[float], p: float = 0.9) -> float:
+def cycles_at_probability(cycles: Sequence[float], p: float = 0.9) -> float:  # p = 0.9 [ASSUMED]
     """Smallest ``k`` with ``P[K <= k] >= p`` (inf if never reached)."""
     if not 0.0 < p <= 1.0:
         raise ValueError(f"p must lie in (0, 1], got {p}")

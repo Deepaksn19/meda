@@ -176,11 +176,11 @@ class BioassayExecutor:
         router_factory: RouterFactory,
         chip: MEDABiochip,
         rng: Optional[np.random.Generator] = None,
-        hazard_margin: Optional[int] = 3,
-        kmax_alpha: float = 1.0,
-        on_timeout: str = "continue",
-        max_cycles: int = 2000,
-        dispense_step: Optional[int] = 2,
+        hazard_margin: Optional[int] = 3,  # [REF-CODE] routing zone +- 3 MCs
+        kmax_alpha: float = 1.0,  # [REF-CODE] 1 * (W_h + H_h) per job in the bioassays
+        on_timeout: str = "continue",  # [ASSUMED] the reference treats a timed-out job as done
+        max_cycles: int = 2000,  # [REF-CODE] cycle budget of a whole bioassay
+        dispense_step: Optional[int] = 2,  # [ASSUMED] MCs per cycle when dispensing
     ) -> None:
         if on_timeout not in TIMEOUT_MODES:
             raise ValueError(f"on_timeout must be one of {TIMEOUT_MODES}, got {on_timeout!r}")

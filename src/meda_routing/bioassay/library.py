@@ -48,7 +48,7 @@ _MERGE = frozenset({"Mix", "Dlt"})
 _SPLIT = frozenset({"Spt"})
 
 #: Chip size used for the reference bioassay experiments (``test_bioassay.py``).
-PAPER_CHIP_SIZE: Tuple[int, int] = (60, 30)
+PAPER_CHIP_SIZE: Tuple[int, int] = (60, 30)  # [REF-CODE] 60x30 chip, 4x4 droplets (test_bioassay.py)
 
 Coords = Tuple[int, int, int, int]
 #: ``(name, type, pre, cond, starts, goals)`` with 1-based inclusive coordinates.

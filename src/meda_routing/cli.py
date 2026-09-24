@@ -338,9 +338,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("evaluate", help="evaluate a trained agent on random jobs")
     p.add_argument("--model", "-m", required=True, help="model.zip or run directory")
     p.add_argument("--config", "-c", help="training YAML for the env (default: the run's config)")
-    p.add_argument("--episodes", type=int, default=500)
-    p.add_argument("--n-envs", type=int, default=8)
-    p.add_argument("--seed", type=int, default=12345)
+    p.add_argument("--episodes", type=int, default=500)  # [PAPER Sec. V-B] 500 random jobs
+    p.add_argument("--n-envs", type=int, default=8)  # [ASSUMED] speed only
+    p.add_argument("--seed", type=int, default=12345)  # [ASSUMED]
     p.add_argument("--stochastic", action="store_true", help="sample actions instead of argmax")
     p.add_argument("--device", default="auto", help="auto (local GPU if any), cpu, cuda[:i] or mps")
     p.add_argument("--out", help="metrics JSON (default: <run>/eval/evaluate_seed<seed>.json)")
@@ -351,13 +351,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("compare", help="compare routers on identical random jobs (Sec. VI)")
     p.add_argument("--model", "-m", help="trained agent (needed for the drl router)")
     p.add_argument("--config", "-c", help="training YAML for the env (default: the run's config)")
-    p.add_argument("--routers", nargs="+", default=["drl", "baseline"])
+    p.add_argument("--routers", nargs="+", default=["drl", "baseline"])  # [PAPER Sec. VI] DRL vs. shortest path
     p.add_argument("--step-mode", default="single", choices=["single", "double", "adaptive"],
-                   help="step mode of the baseline and formal routers")
-    p.add_argument("--jobs", type=int, default=200)
-    p.add_argument("--seed", type=int, default=0)
+                   help="step mode of the baseline and formal routers")  # [ASSUMED] single steps like the PCB baseline of Sec. VI
+    p.add_argument("--jobs", type=int, default=200)  # [ASSUMED]
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
     p.add_argument("--k-max", type=int, default=None,
-                   help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")
+                   help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")  # [PAPER Sec. VI] prototype runs used 40 cycles; default = env's k_max
     p.add_argument("--out", help="CSV with one row per (job, router); a summary CSV and a PNG "
                                  "go next to it (default: <run>/eval/compare_<routers>_seed<seed>.csv)")
     add_import(p)
@@ -367,23 +367,23 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bioassay", help="bioassay completion benchmark (Fig. 9)")
     p.add_argument("--assay", default="covid-rat", help="covid-rat | covid-pcr | simple")
     p.add_argument("--model", "-m", help="trained agent for the drl router (60x30 chip)")
-    p.add_argument("--routers", nargs="+", default=["baseline", "formal", "drl"])
+    p.add_argument("--routers", nargs="+", default=["baseline", "formal", "drl"])  # [PAPER Fig. 9] baseline, formal and DRL
     p.add_argument("--step-mode", default="double", choices=["single", "double", "adaptive"],
                    help="step mode of the baseline and formal routers (default: double, the "
-                        "MEDAX model the reference Fig. 9 driver uses)")
-    p.add_argument("--trials", type=int, default=100)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-initial-actuations", type=int, default=399)
+                        "MEDAX model the reference Fig. 9 driver uses)")  # [REF-CODE] Fig. 9 driver used double steps (bDStep = 1)
+    p.add_argument("--trials", type=int, default=100)  # [ASSUMED] the paper/reference run 1000 trials; 100 is faster
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
+    p.add_argument("--max-initial-actuations", type=int, default=399)  # [REF-CODE] pre-aged chips, n ~ U{0, 399}
     p.add_argument("--tau-range", type=float, nargs=2, metavar=("LO", "HI"),
                    help="degradation tau range (default: paper, 0.5 0.7; the authors' "
                         "bioassay runs used 0.7 0.7)")
     p.add_argument("--c-range", type=float, nargs=2, metavar=("LO", "HI"),
                    help="degradation c range (default: paper, 500 800; the authors' "
                         "bioassay runs used 200 200)")
-    p.add_argument("--fault-fraction", type=float, default=0.0)
-    p.add_argument("--hidden-defect-fraction", type=float, default=0.0)
-    p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])
-    p.add_argument("--max-cycles", type=int, default=2000)
+    p.add_argument("--fault-fraction", type=float, default=0.0)  # [ASSUMED] Fig. 9 injects no faults
+    p.add_argument("--hidden-defect-fraction", type=float, default=0.0)  # [ASSUMED]
+    p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])  # [ASSUMED] reference treats timed-out jobs as done (skip)
+    p.add_argument("--max-cycles", type=int, default=2000)  # [REF-CODE] k_max = 2000 per bioassay
     p.add_argument("--out", help="output folder (default: <run>/bioassay with a DRL model, "
                                  "else runs/bioassay)")
     add_import(p)
@@ -399,7 +399,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("render", help="record a GIF of one routing episode")
     p.add_argument("--model", "-m", required=True)
     p.add_argument("--config", "-c")
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
     p.add_argument("--out", help="GIF (default: <run>/episode_seed<seed>.gif)")
     add_import(p)
     add_set(p, env_only=True)

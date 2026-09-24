@@ -6,6 +6,14 @@ moved in each axis (the signed distance ``(lambda_x, lambda_y)``) is derived
 from the droplet size and its position relative to the goal by
 :func:`adaptive_step` (Algorithm 1).  This keeps ``|A| = 8`` for every droplet
 size while still allowing moves of more than two MCs per control cycle.
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -29,7 +37,7 @@ class Action(IntEnum):
     SW = 7
 
 
-NUM_ACTIONS = len(Action)
+NUM_ACTIONS = len(Action)  # [PAPER Sec. III-B] 8 directions: N, S, E, W, NE, NW, SE, SW
 
 #: Unit direction ``(ux, uy)`` of every action; north is ``+y``, east is ``+x``.
 DIRECTIONS: Dict[Action, Tuple[int, int]] = {
@@ -72,6 +80,7 @@ def adaptive_step(droplet: Rect, goal: Rect, action: Action) -> Tuple[int, int]:
     goal lies strictly between 0 and ``Lambda`` MCs away in that direction, so
     that the droplet never overshoots the goal.
     """
+    # The whole step rule is [PAPER Algorithm 1]: Lambda = floor(size / 2), capped at the goal.
     action = Action(action)
     lam_x, lam_y = 0, 0
     dx, dy = goal.xa - droplet.xa, goal.ya - droplet.ya  # line 2

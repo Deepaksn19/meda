@@ -59,6 +59,8 @@ HistoryLike = Union[pd.DataFrame, str, os.PathLike]
 RectLike = Union[Rect, Sequence[int]]
 
 # ------------------------------------------------------------------- styles
+# [PAPER Figs. 4, 7-9] colors/line styles follow the paper's figures; all other
+# presentation settings are [ASSUMED] and do not affect any result.
 # The paper's colors (red / blue / green / black), taken from a palette
 # checked for color-vision-deficiency separation.  Every series also differs
 # in line style or marker, so identity never rests on hue alone.

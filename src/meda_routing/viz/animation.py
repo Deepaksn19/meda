@@ -36,6 +36,7 @@ from ..core.actions import Action
 #: ``policy_fn(obs, env) -> action`` (an int, :class:`Action` or 1-element array).
 PolicyFn = Callable[[np.ndarray, Any], Any]
 
+# Presentation settings below are [ASSUMED]; they do not affect any result.
 #: The longer chip side spans about this many pixels (see :func:`frame_scale`).
 TARGET_PIXELS = 400
 _MIN_WIDTH_PX = 240  # room for the caption on small chips
