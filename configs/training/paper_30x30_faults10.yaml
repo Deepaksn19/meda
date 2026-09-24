@@ -1,13 +1,17 @@
 # H(30, 10%): 10% fully degraded MCs in 2x2 clusters, re-drawn every episode
 # (Sec. V-B, Fig. 8). Initialized from H*(30, 0%) as in Fig. 3(b).
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: paper_30x30_faults10
-init_from: runs/paper_30x30_healthy/seed_0
-output_dir: runs
+init_from: runs/paper_30x30_healthy/seed_0 # [PAPER Sec. V-B] fault agents start from the healthy agent
+output_dir: runs             # [ASSUMED]
 env:
-  width: 30
-  height: 30
-  obs_size: [30, 30]
-  fault_fraction: 0.10
-  fault_cluster: 2
+  width: 30                  # [PAPER Sec. V-B]
+  height: 30                 # [PAPER Sec. V-B]
+  obs_size: [30, 30]         # [PAPER Sec. IV-C]
+  fault_fraction: 0.10       # [PAPER Sec. V-B, Fig. 8] 10% faults
+  fault_cluster: 2           # [PAPER Sec. V-B] 2x2 clusters
 schedule:
-  epochs: 20
+  epochs: 20                 # [PAPER Fig. 8] x-axis; exact count [ASSUMED]

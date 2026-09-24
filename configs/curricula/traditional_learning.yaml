@@ -4,6 +4,9 @@
 # with the chip area (128*W*H*256 weights: ~118M for 60x60, ~1.06B for 180x180),
 # so the larger stages need a GPU with plenty of memory. Set
 # `--set env.obs_size=[30,30]` to compare initializations at equal input size.
+# Sources: random initialization at native resolution [PAPER Fig. 3(a), Sec. IV-C];
+# sizes [PAPER Sec. V-B] (90 and 150 are [ASSUMED] extra points); epochs [ASSUMED]
+# from the x-axes of Figs. 4 and 7.
 name: traditional_learning
 base: ../training/paper_30x30_healthy.yaml
 # Epochs follow the paper's figures: 25 (Fig. 4; Fig. 7 for 30x30 and 60x60)

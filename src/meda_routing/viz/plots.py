@@ -59,6 +59,8 @@ HistoryLike = Union[pd.DataFrame, str, os.PathLike]
 RectLike = Union[Rect, Sequence[int]]
 
 # ------------------------------------------------------------------- styles
+# [PAPER Figs. 4, 7-9] colors/line styles follow the paper's figures; all other
+# presentation settings are [ASSUMED] and do not affect any result.
 # The paper's colors (red / blue / green / black), taken from a palette
 # checked for color-vision-deficiency separation.  Every series also differs
 # in line style or marker, so identity never rests on hue alone.
@@ -799,4 +801,50 @@ def plot_routing_path(
                           hidden_defects=hidden_defects)
         if title:
             ax.set_title(title)
+        return _save(fig, out_path, pdf, dpi)
+
+
+def plot_router_comparison(
+    summary: pd.DataFrame,
+    title: str,
+    out_path: PathLike,
+    *,
+    pdf: bool = False,
+    dpi: int = 150,
+) -> Path:
+    """Success rate and cycles per router side by side (Sec. VI comparisons).
+
+    ``summary`` is :func:`meda_routing.routers.compare.summarize_comparison`'s
+    table (index: router; columns ``success_rate`` and
+    ``mean_cycles_success``).  Two panels with separate axes rather than one
+    dual-axis chart; routers are named on the y axis, so no legend is needed.
+    """
+    names = [str(n) for n in summary.index]
+    colors = [router_styles(names)[n][0] for n in names]
+    panels = (
+        ("success_rate", "success rate (%)", 100.0, "{:.1f}%"),
+        ("mean_cycles_success", "cycles per successful job", 1.0, "{:.1f}"),
+    )
+    with mpl.rc_context(_RC):
+        fig = Figure(figsize=(6.4, 0.45 * len(names) + 1.1), layout="constrained")
+        axes = fig.subplots(1, 2, sharey=True)
+        y = np.arange(len(names))
+        for ax, (column, label, scale, fmt) in zip(axes, panels):
+            values = summary[column].to_numpy(dtype=float) * scale
+            ax.barh(y, np.nan_to_num(values), height=0.6, color=colors, edgecolor="white", linewidth=2)
+            finite = values[np.isfinite(values)]
+            top = float(finite.max()) if finite.size else 1.0
+            for yi, v in zip(y, values):
+                text = fmt.format(v) if np.isfinite(v) else "n/a"
+                ax.text((v if np.isfinite(v) else 0) + 0.02 * top, yi, text, va="center",
+                        fontsize=8, color=INK)
+            ax.set_xlim(0, 115 if column == "success_rate" else top * 1.25)
+            ax.set_xlabel(label)
+            ax.grid(True, axis="x", color=GRID, linewidth=0.6)
+            ax.set_axisbelow(True)
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+        axes[0].set_yticks(y, names)
+        axes[0].invert_yaxis()
+        fig.suptitle(title, fontsize=10)
         return _save(fig, out_path, pdf, dpi)

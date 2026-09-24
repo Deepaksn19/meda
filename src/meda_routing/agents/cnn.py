@@ -36,11 +36,11 @@ class MedaCNN(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: gym.spaces.Box,
-        channels: Sequence[int] = (64, 128, 128),
-        hidden_dim: int = 256,
-        kernel_size: int = 3,
-        stride: int = 1,
-        padding: int = 1,
+        channels: Sequence[int] = (64, 128, 128),  # [PAPER Table I]
+        hidden_dim: int = 256,  # [PAPER Table I] FC layer
+        kernel_size: int = 3,  # [PAPER Table I] 3x3 filters
+        stride: int = 1,  # [REF-CODE] saved weights prove stride 1 (Table I prints 3)
+        padding: int = 1,  # [REF-CODE] SAME padding
     ) -> None:
         super().__init__(observation_space, features_dim=hidden_dim)
         in_ch = observation_space.shape[0]

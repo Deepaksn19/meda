@@ -14,6 +14,14 @@ penalty of 1 for every cycle without progress.  Setting
 linear form of the paper.  Timeouts are *not* penalized (Sec. III-D: the
 remaining number of cycles is not observable, so penalizing it would cause
 state aliasing).
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -23,11 +31,14 @@ from dataclasses import dataclass
 
 @dataclass
 class RewardConfig:
-    alpha_dis: float = 0.5
-    alpha_dis_away: float = 0.8
-    stall_penalty: float = 1.0
-    alpha_ter: float = 100.0
-    alpha_act: float = 1.0
+    # The form of the reward (distance, terminal and action terms) is [PAPER
+    # Sec. III-D]; the paper gives no coefficients, so all values are [REF-CODE]
+    # (``_getRewardH``), confirmed by the authors' training log (return ~111).
+    alpha_dis: float = 0.5  # [REF-CODE] reward per MC of progress towards the goal
+    alpha_dis_away: float = 0.8  # [REF-CODE] weight of a move that loses (or keeps) distance
+    stall_penalty: float = 1.0  # [REF-CODE] extra -1 when a move makes no progress
+    alpha_ter: float = 100.0  # [REF-CODE] reward for reaching the goal
+    alpha_act: float = 1.0  # [REF-CODE] penalty for an invalid action
 
 
 def compute_reward(

@@ -6,20 +6,24 @@
 # The documented runs used vf_coef 0.5, the default at the time; 0.25 is the
 # weight that matches PPO2 (IMPLEMENTATION_NOTES), so set ppo.vf_coef=0.25 for
 # a paper-faithful baseline.
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: validation_16x16
-output_dir: runs
+output_dir: runs             # [ASSUMED]
 env:
-  width: 16
-  height: 16
+  width: 16                  # [ASSUMED] reduced problem for CPUs
+  height: 16                 # [ASSUMED]
   obs_size: [16, 16]       # native resolution: no resampling
 agent:
-  extractor: cnn
-  extractor_kwargs: {channels: [32, 64, 64], hidden_dim: 128}
+  extractor: cnn             # [PAPER Table I] architecture, smaller widths below
+  extractor_kwargs: {channels: [32, 64, 64], hidden_dim: 128} # [REF-CODE] smaller CNN of my_net.py
 ppo:
-  vf_coef: 0.5
-  device: cpu
+  vf_coef: 0.5               # [ASSUMED] value of the documented runs (paper-faithful: 0.25)
+  device: cpu                # [ASSUMED]
 schedule:
-  epochs: 40
+  epochs: 40                 # [ASSUMED]
   steps_per_epoch: 8192    # 2^13 (paper: 2^14 on 30x30)
 eval:
-  episodes: 300
+  episodes: 300              # [ASSUMED]

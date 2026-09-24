@@ -14,6 +14,14 @@ the droplet reaches the goal and is truncated after
 For bioassay execution the environment can also be driven with an explicit
 job on an externally owned :class:`MEDABiochip` whose wear persists across
 routing jobs: ``env.reset(options={"job": job, "chip": chip})``.
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -39,54 +47,54 @@ from .reward import RewardConfig, compute_reward
 class EnvConfig:
     """Configuration of :class:`MEDARoutingEnv`."""
 
-    width: int = 30
-    height: int = 30
+    width: int = 30  # [PAPER Sec. V-B] chip sizes W = H in {30, 60, 120, 180}; 30 is the base agent
+    height: int = 30  # [PAPER Sec. V-B]
     #: Unified observation size ``(w, h)`` (Sec. IV-C); ``None`` keeps the
     #: chip resolution ("traditional learning").
-    obs_size: Optional[Tuple[int, int]] = (30, 30)
+    obs_size: Optional[Tuple[int, int]] = (30, 30)  # [PAPER Sec. IV-C] unified 30x30 observation
     #: Parameterized action space with adaptive step size (Algorithm 1).  When
     #: disabled every action moves the droplet by ``fixed_step`` MCs per axis.
-    adaptive_step: bool = True
-    fixed_step: int = 1
+    adaptive_step: bool = True  # [PAPER Algorithm 1]
+    fixed_step: int = 1  # [ASSUMED] only used when adaptive_step is off (baselines)
     #: Step of the ordinal moves in fixed-step mode (``None``: ``fixed_step``).
-    diagonal_step: Optional[int] = None
+    diagonal_step: Optional[int] = None  # [REF-CODE] MEDAX double-step model of [18]; baselines only
     #: ``k_max = kmax_alpha * (W_h + H_h)`` (Sec. IV-B, ``alpha in [1, 2]``).
-    kmax_alpha: float = 1.0
+    kmax_alpha: float = 1.0  # [PAPER Sec. IV-B] alpha in [1, 2]; picking 1 is [ASSUMED]
     #: ``"hazard"``: ``W_h + H_h`` of the routing zone (Sec. IV-B; reference
     #: bioassays); ``"chip"``: ``W + H`` of the whole chip (the reference
     #: training runs, and the ``2(W+H)`` bound also mentioned in Sec. IV-B).
-    kmax_basis: str = "hazard"
+    kmax_basis: str = "hazard"  # [PAPER Sec. IV-B] alpha*(W_h+H_h); "chip" = W+H as in [REF-CODE] training
     #: Fraction of MCs made fully degraded (and visible to the health
     #: sensors) at the start of each episode, placed in ``fault_cluster``-sized
     #: square clusters (Sec. V-B: 10% / 20% in 2x2 clusters).
-    fault_fraction: float = 0.0
-    fault_cluster: int = 2
+    fault_fraction: float = 0.0  # [PAPER Sec. V-B] 0% / 10% / 20% injected faults (0 = healthy)
+    fault_cluster: int = 2  # [PAPER Sec. V-B] faults placed in 2x2 clusters
     #: Fraction of MCs with defects that are *invisible* to the health
     #: sensors (Sec. VI-C: ~5% inherent defects on the PCB prototypes).
-    hidden_defect_fraction: float = 0.0
+    hidden_defect_fraction: float = 0.0  # [PAPER Sec. VI] ~5% on the prototypes; default 0 [ASSUMED]
     #: Never place faults under the start or goal droplet.
-    protect_endpoints: bool = True
+    protect_endpoints: bool = True  # [ASSUMED] no faults under start/goal droplets
     #: Mark the droplet edge touching the routing-zone boundary after an
     #: invalid action (reference-code feature, not in the paper; as in the
     #: reference, the marks of the last invalid action persist until the
     #: next invalid action or the end of the episode).
-    mark_collisions: bool = False
+    mark_collisions: bool = False  # [REF-CODE] feature; off because Fig. 2 has no such cue [ASSUMED]
     #: Report a timeout as ``terminated`` instead of ``truncated``.  Stable
     #: Baselines v2 (used by the authors) cut the return at timeouts; the
     #: default truncation lets PPO bootstrap, avoiding the state aliasing
     #: discussed in Sec. III-D.
-    timeout_terminal: bool = False
+    timeout_terminal: bool = False  # [ASSUMED] truncation; True = PPO2 behaviour of [REF-CODE]
     #: Online adaptation to one physical chip (Sec. I: offline training in
     #: simulation, then "online DRL training ... to adjust the policy under
     #: different biochip environments"): the chip's degradation parameters,
     #: initial wear and faults are drawn once, and wear keeps accumulating
     #: across episodes instead of being reset.
-    persistent_chip: bool = False
+    persistent_chip: bool = False  # [ASSUMED] online-adaptation mode for the idea in [PAPER Sec. I]
     #: With ``persistent_chip``: seed of the physical chip (degradation
     #: parameters, initial wear, faults), so that every environment instance —
     #: training and evaluation alike — models the same chip.  ``None`` draws
     #: the chip from the environment's own random stream.
-    chip_seed: Optional[int] = None
+    chip_seed: Optional[int] = None  # [ASSUMED]
     degradation: DegradationConfig = field(default_factory=DegradationConfig)
     jobs: JobSamplerConfig = field(default_factory=JobSamplerConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)

@@ -32,6 +32,8 @@ from .base import Router, RoutingState
 #: ``"double"`` moves up to 2 MCs in cardinal directions and 1 MC per axis
 #: diagonally (MEDAX, see :data:`DIAGONAL_STEPS`); ``"adaptive"`` uses
 #: Algorithm 1.
+#: [REF-CODE] single / double steps are the MEDAY / MEDAX models of [18]
+#: (``BiochipClass.m``); "adaptive" is [PAPER Algorithm 1].
 STEP_MODES: Dict[str, Tuple[bool, int]] = {
     "single": (False, 1),
     "double": (False, 2),
@@ -45,7 +47,7 @@ _ACTION_OF: Dict[Tuple[int, int], Action] = {vec: act for act, vec in DIRECTIONS
 #: Step of the ordinal (diagonal) directions for each ``step_mode``; ``None``
 #: means "same as ``fixed_step``".  The double-step model of [18]
 #: (``BiochipClass.m``) has ``aNN/aSS/aEE/aWW`` but no double-diagonal action.
-DIAGONAL_STEPS: Dict[str, Optional[int]] = {"single": None, "double": 1, "adaptive": None}
+DIAGONAL_STEPS: Dict[str, Optional[int]] = {"single": None, "double": 1, "adaptive": None}  # [REF-CODE]
 
 
 def diagonal_step_for(step_mode: str) -> Optional[int]:

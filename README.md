@@ -95,8 +95,9 @@ meda train --config configs/training/paper_30x30_healthy.yaml
 #    ...or a CPU-friendly variant (the reference code's smaller CNN)
 meda train --config configs/training/quick_cpu_30x30.yaml
 
-# 2. Training curves (score, success rate, cycles per epoch)
-meda plot-training runs/paper_30x30_healthy --out figures/healthy_30.png
+# 2. Training curves (score, success rate, cycles per epoch); they are also
+#    redrawn automatically into the run folder after every epoch
+meda plot-training runs/paper_30x30_healthy
 
 # 3. Evaluate on 500 random routing jobs, e.g. with 10% injected faults
 meda evaluate --model runs/paper_30x30_healthy/seed_0 --set env.fault_fraction=0.1
@@ -106,8 +107,8 @@ meda evaluate --model runs/paper_30x30_healthy/seed_0 --set env.fault_fraction=0
 meda compare --model runs/paper_30x30_healthy/seed_0 --routers drl baseline formal \
     --set env.fault_fraction=0.1 --set env.hidden_defect_fraction=0.05 --jobs 200
 
-# 5. Watch the agent
-meda render --model runs/paper_30x30_healthy/seed_0 --set env.fault_fraction=0.1 --out episode.gif
+# 5. Watch the agent (GIF saved next to the model)
+meda render --model runs/paper_30x30_healthy/seed_0 --set env.fault_fraction=0.1
 ```
 
 `train` and `curriculum` accept any config value as `--set key=value`, for
@@ -116,6 +117,46 @@ or `--set ppo.device=cuda`. `evaluate`, `compare` and `render` accept only
 `env.*` overrides; their other settings are flags such as `--episodes` or
 `--device`. `bioassay` builds its chips from its own flags (`meda bioassay
 --help`).
+
+## Running on a GPU
+
+Every command uses the local GPU when there is one: CUDA (the card with the
+most free memory), then Apple MPS, then the CPU. `meda devices` shows what is
+available. Set `MEDA_DEVICE=cuda:1` (or `cpu`) to choose. Networks are never
+forced onto a GPU that is missing; the code falls back to the CPU.
+
+To use the GPU of another machine on your network, for example a lab server
+at `192.168.x.x`, prefix the command with `scripts/run_on_gpu_server.sh`:
+
+```bash
+# once: ssh-copy-id student@192.168.1.50   (password-less ssh)
+GPU_SERVER=student@192.168.1.50 bash scripts/run_on_gpu_server.sh \
+    meda train -c configs/training/paper_30x30_healthy.yaml
+```
+
+The script copies the code to the server, sets up a virtualenv there on
+first use, runs the command on the server's GPU and copies `runs/` back. If
+the server cannot be reached or has no GPU, it runs the command locally
+instead. `DETACH=1` keeps a long training running on the server after you
+disconnect. `... status` shows its progress, and `... fetch` copies the
+results back. Settings can be kept in `scripts/gpu_server.env`; see
+`scripts/gpu_server.env.example`.
+
+## Where results are saved
+
+Everything a run produces lives in one folder inside this project,
+`runs/<name>/seed_<s>/`, whatever directory you start `meda` from:
+
+| file | content |
+|---|---|
+| `model.zip`, `best_model.zip` | latest model and the model with the best evaluation |
+| `checkpoints/epoch_XXX.zip` | full model every `schedule.checkpoint_every` epochs (default 5) and after the last one |
+| `progress.csv`, `summary.json`, `config.yaml` | per-epoch metrics, final summary, exact settings |
+| `training_curves.png` | score, success rate and cycles, redrawn after every epoch (`runs/<name>/training_curves.png` averages the seeds) |
+| `eval/`, `bioassay/`, `episode_seed<k>.gif` | written by `evaluate`, `compare` (CSV + chart), `bioassay` (CSV + CDF plot) and `render` for this model |
+
+Set `MEDA_RUNS_DIR` to keep runs elsewhere. Any `--out` or `-o` you give
+explicitly is used as is.
 
 ## Reproducing the paper's experiments
 
@@ -147,7 +188,8 @@ src/meda_routing/
   viz/         training curves, completion CDFs, routing paths, GIFs
   cli.py       the `meda` command
 configs/       training configs and curricula (paper defaults are documented inline)
-docs/          implementation notes and the GNN extension guide
+docs/          implementation notes, results and the GNN extension guide
+FILES.txt      what every file does
 examples/      a minimal GNN feature extractor showing the extension point
 tests/         pytest suite
 ```

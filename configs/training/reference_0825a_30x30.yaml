@@ -11,18 +11,22 @@
 # visible in the log: 3.5e-4 until epoch 27, 1.7e-4 at epoch 30, 1.1e-5 at 35.
 # Not reproduced: the run's rounded 5-level health readings (the paper's
 # floor quantization is used), fixed tau/c (irrelevant on healthy chips).
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: reference_0825a_30x30
-output_dir: runs
+output_dir: runs             # [ASSUMED]
 env:
-  width: 30
-  height: 30
-  obs_size: [30, 30]
-  kmax_basis: chip
-  mark_collisions: true
+  width: 30                  # [REF-CODE] 0825a run
+  height: 30                 # [REF-CODE]
+  obs_size: [30, 30]         # [PAPER Sec. IV-C]
+  kmax_basis: chip           # [REF-CODE] k_max = W + H of the chip
+  mark_collisions: true      # [REF-CODE]
   jobs:
-    droplet_sizes: [[4, 4], [5, 4], [5, 5], [6, 5], [6, 6]]
+    droplet_sizes: [[4, 4], [5, 4], [5, 5], [6, 5], [6, 6]] # [REF-CODE] sizes of the 0825a run
 schedule:
-  epochs: 40
-  lr_decay: 0.5
-  lr_min: 0.0
-  success_threshold: 0.999
+  epochs: 40                 # [REF-CODE] log shows convergence by epoch 30
+  lr_decay: 0.5              # [REF-CODE] halving seen in the log
+  lr_min: 0.0                # [REF-CODE] no floor in the log
+  success_threshold: 0.999   # [REF-CODE] decays only at 100% success

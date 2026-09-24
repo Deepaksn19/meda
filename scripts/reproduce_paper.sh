@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OUT=${OUT:-runs}
-RES=${RES:-results}
+RES=${RES:-$OUT/figures}      # figures and tables next to the runs
 TRIALS=${TRIALS:-1000}
 JOBS=${JOBS:-500}
 REPEATS=${REPEATS:-5}          # the paper repeats every training experiment 5 times

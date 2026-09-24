@@ -1,6 +1,9 @@
 # Fig. 3(b) / Fig. 4 (blue) / Fig. 8: transfer learning. H(30,0%) is trained
 # from scratch; every other agent is initialized from an already trained one.
 # All agents share the unified 30x30 observation.
+# Sources: chain structure [PAPER Fig. 3(b), Sec. IV-C]; sizes [PAPER Sec. V-B];
+# 10%/20% fault stages [PAPER Fig. 8]; epoch counts [ASSUMED] from the figures'
+# x-axes (25 for sizes, 20 for fault stages).
 name: transfer_learning
 base: ../training/paper_30x30_healthy.yaml
 defaults:

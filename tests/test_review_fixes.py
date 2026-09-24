@@ -250,3 +250,56 @@ def test_env_config_files_accept_scientific_notation(tmp_path):
     config = tmp_path / "sci.yaml"
     config.write_text("env: {width: 10, height: 10, fault_fraction: 1e-1}\n")
     main(["compare", "--routers", "baseline", "--jobs", "1", "--config", str(config)])
+
+
+def test_device_resolution(monkeypatch):
+    from meda_routing.devices import describe_devices, resolve_device
+
+    assert resolve_device("cpu") == "cpu"
+    assert resolve_device("auto") in {"cpu", "mps"} or resolve_device("auto").startswith("cuda:")
+    with pytest.warns(UserWarning):
+        assert resolve_device("cuda:99") == "cpu"  # a missing GPU falls back to the CPU
+    monkeypatch.setenv("MEDA_DEVICE", "cpu")
+    assert resolve_device("cuda") == "cpu"  # the environment variable wins
+    with pytest.raises(ValueError):
+        monkeypatch.delenv("MEDA_DEVICE")
+        resolve_device("tpu")
+    assert "auto ->" in describe_devices()
+
+
+def test_outputs_land_in_the_runs_folder_next_to_the_model(tmp_path, monkeypatch):
+    from meda_routing import paths
+    from meda_routing.cli import main
+
+    runs = tmp_path / "all_runs"
+    monkeypatch.setenv("MEDA_RUNS_DIR", str(runs))
+    assert paths.resolve_output_dir("runs") == runs and paths.resolve_output_dir(None) == runs
+    config = load_config(
+        None,
+        [
+            "name=tiny",
+            "env.width=8",
+            "env.height=8",
+            "env.obs_size=[8,8]",
+            "env.jobs.droplet_sizes=[[2,2]]",
+            "agent.extractor_kwargs={channels: [4], hidden_dim: 8}",
+            "ppo.n_envs=2",
+            "ppo.n_steps=32",
+            "schedule.epochs=2",
+            "schedule.steps_per_epoch=64",
+            "schedule.checkpoint_every=1",
+            "eval.episodes=2",
+            "eval.n_envs=2",
+            "verbose=0",
+        ],
+    )
+    from meda_routing.training.trainer import train
+
+    (run,) = train(config)
+    assert run == runs / "tiny" / "seed_0"
+    for name in ("model.zip", "best_model.zip", "progress.csv", "training_curves.png",
+                 "checkpoints/epoch_001.zip", "checkpoints/epoch_002.zip"):
+        assert (run / name).exists(), name
+    main(["compare", "-m", str(run / "checkpoints" / "epoch_002.zip"), "--routers", "drl", "baseline",
+          "--jobs", "2"])
+    assert (run / "eval" / "compare_drl_baseline_seed0.png").exists()

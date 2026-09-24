@@ -1,0 +1,232 @@
+meda-gnn-routing: what every file does
+=======================================
+
+Reimplementation of Elfar et al., "Deep Reinforcement Learning-Based Approach
+for Efficient and Reliable Droplet Routing on MEDA Biochips", IEEE TCAD 42(4),
+2023, as the base for GNN-based routing (B.Tech project).
+
+How the pieces fit together, in the order a training run uses them:
+
+  configs/*.yaml  ->  training/config.py      (read settings)
+                  ->  envs/meda_env.py         (simulated chip = core/*)
+                  ->  agents/cnn.py            (policy network)
+                  ->  training/trainer.py      (PPO epochs, evaluation, saving)
+                  ->  runs/<name>/seed_<s>/    (models, checkpoints, logs, plots)
+  trained model   ->  routers/drl.py           (use it as a router)
+                  ->  routers/compare.py, bioassay/*   (benchmarks vs. baselines)
+                  ->  viz/*                    (figures and GIFs)
+
+Parameter sources: every setting in the code and configs is tagged
+  [PAPER ...]  value stated in the paper (section / figure / table)
+  [REF-CODE]   not in the paper; from the authors' public code melfar87/MEDA
+  [ASSUMED]    chosen by us
+docs/IMPLEMENTATION_NOTES.md explains each non-paper decision in detail.
+
+
+TOP LEVEL
+---------
+README.md                 Overview, installation, quick start, GPU use, where
+                          results are saved, how to reproduce each figure.
+FILES.txt                 This file.
+pyproject.toml            Package definition: name meda-gnn-routing, Python
+                          package meda_routing, dependencies, the `meda`
+                          command, pytest settings.
+requirements.txt          The same dependencies for `pip install -r`.
+.gitignore                Keeps runs/, virtualenvs, caches and the private
+                          scripts/gpu_server.env out of git.
+.github/workflows/tests.yml
+                          GitHub Actions: runs the test suite on Python 3.10
+                          and 3.12 (CPU PyTorch) on every push.
+
+
+src/meda_routing/  (the code; installed as the Python package)
+-----------------
+__init__.py               Package summary and version.
+__main__.py               Makes `python -m meda_routing ...` equal to `meda ...`.
+cli.py                    The `meda` command: train, curriculum, evaluate,
+                          compare, bioassay, plot-training, render, devices.
+                          Decides default output locations (next to the model).
+devices.py                Picks the compute device: local CUDA GPU with the most
+                          free memory, else Apple MPS, else CPU; MEDA_DEVICE
+                          overrides. `meda devices` prints the choice.
+paths.py                  Finds the project folder and the runs folder
+                          (<project>/runs or $MEDA_RUNS_DIR) so all outputs of
+                          a run stay together whatever the working directory.
+
+core/  - the physical model of a MEDA biochip (Sec. II-III of the paper)
+  geometry.py             Rect / Droplet: rectangles of microelectrodes (MCs)
+                          as (xa, ya, xb, yb), distances, footprints.
+  actions.py              The 8 actions (N, S, E, W, NE, NW, SE, SW) and
+                          Algorithm 1: adaptive step size floor(size/2), never
+                          overshooting the goal.
+  biochip.py              MEDABiochip: per-MC degradation D = tau^(n/c)
+                          (Eq. 1), b-bit health sensing H = floor(2^b D), wear
+                          counters, injected faults and hidden defects.
+  movement.py             Probabilistic droplet movement: a step succeeds with
+                          the mean degradation of the frontier MCs; exact
+                          outcome distributions; valid/invalid actions.
+  dynamics.py             One control cycle: plan the actuation pattern for an
+                          action, execute it (random outcome), update wear.
+  jobs.py                 Routing jobs (start, goal, routing zone), the
+                          paper's 9 droplet sizes, stratified / uniform job
+                          sampling, hazard (routing-zone) bounds.
+
+envs/  - the reinforcement-learning environment (Sec. III, Algorithm 2)
+  meda_env.py             MEDARoutingEnv (Gymnasium "MEDA-Routing-v0") and its
+                          EnvConfig: samples a job and a chip each episode,
+                          steps the dynamics, returns observation / reward,
+                          ends at the goal or after k_max cycles. Also the
+                          persistent-chip mode (online adaptation) and
+                          render_frame for GIFs.
+  observation.py          The 3-channel image observation (health masked to
+                          the routing zone, droplet, goal), resized to 30x30.
+  reward.py               The reward: progress towards the goal, +100 at the
+                          goal, penalties for stalling and invalid actions.
+
+agents/  - policy networks (Sec. IV-A, Table I)
+  cnn.py                  MedaCNN: the Table I CNN (3x3 conv 64/128/128, FC 256)
+                          used as the shared feature extractor of PPO.
+  registry.py             Name -> feature-extractor registry; register your
+                          GNN here and select it with agent.extractor=<name>.
+
+training/  - PPO training (Sec. IV-B/C)
+  config.py               TrainConfig and its sections (agent, ppo, schedule,
+                          eval) with tagged defaults; YAML loading and
+                          `--set key=value` overrides.
+  trainer.py              Trainer: builds PPO on the chosen device, trains
+                          epoch by epoch, evaluates on 500 jobs, applies the
+                          LR rule, saves model.zip / best_model.zip /
+                          checkpoints/epoch_XXX.zip / progress.csv /
+                          summary.json / training_curves.png.
+  lr_schedule.py          The dynamic learning-rate scheduler (eta_0 = 3.5e-4,
+                          x0.7 when success > 99%, floor 1e-6).
+  evaluation.py           Runs a model on N jobs and computes success rate,
+                          mean score and cycles (the paper's metrics).
+  curriculum.py           Chains of trainings: traditional learning (random
+                          init per size) and transfer learning (init from the
+                          previous agent), Fig. 3.
+
+routers/  - routing policies behind one interface, for comparisons
+  base.py                 Router interface, RoutingState, run_job (route one
+                          droplet on a given chip and record the result).
+  drl.py                  DRLRouter: wraps a trained model (CNN or your GNN).
+  baseline.py             Health-agnostic shortest-path router (single,
+                          double or adaptive steps) - the paper's baseline.
+  formal.py               "Formal" router: exact MDP-optimal strategy on the
+                          sensed health map (stands in for PRISM-games).
+  compare.py              Runs several routers on identical jobs and chips and
+                          summarizes success rate, cycles and speed (Sec. VI).
+
+bioassay/  - whole bioassays with many droplets (Sec. V-B, Fig. 9)
+  library.py              COVID-RAT (28 operations) and COVID-PCR (34
+                          operations) sequence graphs, from the reference code.
+  scheduler.py            BioassayExecutor: runs all concurrent routing jobs of
+                          a bioassay on one aging chip, cycle by cycle.
+  benchmark.py            Repeated trials on pre-aged chips, completion-time
+                          statistics and the P(completion <= k) curve.
+
+viz/  - figures and animations
+  plots.py                Training curves (Figs. 4/7/8 style), completion CDFs
+                          (Fig. 9), routing paths (Fig. 14), router comparison
+                          bars.
+  animation.py            record_episode: GIF of a droplet being routed, with
+                          cycle counter and trail.
+
+
+configs/  - experiment settings (every value tagged with its source)
+-------
+training/paper_30x30_healthy.yaml   H(30,0%): the paper's base agent, all
+                                    defaults written out. Start here.
+training/paper_30x30_faults10.yaml  H(30,10%): 10% injected faults, starts
+                                    from the healthy agent (Fig. 8).
+training/covid_60x30.yaml           Agent for the 60x30 bioassay chip (Fig. 9).
+training/online_adaptation_30x30.yaml
+                                    Keeps training on one aging chip (Sec. I).
+training/quick_cpu_30x30.yaml       Smaller CNN and shorter evaluation, for
+                                    laptops without a GPU.
+training/reference_0825a_30x30.yaml Mirrors the authors' logged training run.
+training/validation_16x16.yaml      Small 16x16 problem used to check learning
+                                    on a CPU (docs/RESULTS.md section 6).
+curricula/transfer_learning.yaml    Fig. 3(b)/4/8: 30 -> 60 -> ... -> 180 and
+                                    0% -> 10% -> 20% faults.
+curricula/traditional_learning.yaml Fig. 3(a)/4/7: every size from scratch.
+
+
+scripts/
+-------
+run_on_gpu_server.sh      Runs any `meda` command on a GPU server of the
+                          network (e.g. GPU_SERVER=user@192.168.1.50): copies
+                          the code, sets up a virtualenv, runs, copies runs/
+                          back; runs locally if the server is unreachable or
+                          has no GPU. `status` and `fetch` for long runs.
+gpu_server.env.example    Template for the server settings (copy to
+                          scripts/gpu_server.env).
+reproduce_paper.sh        All paper experiments in one go (GPU recommended);
+                          QUICK=1 for a smoke-size run.
+evaluate_reference_model.py
+                          Loads the authors' trained TensorFlow agent into
+                          PyTorch and runs it in our environment (validation);
+                          --shortest-path runs the optimal router instead.
+compare_with_reference_log.py
+                          Reads the authors' training log and compares it with
+                          one of our progress.csv files.
+
+
+examples/
+--------
+gnn_extractor_example.py  A small working GNN feature extractor (grid graph,
+                          mean aggregation) registered as "gnn_example": the
+                          template for the GNN project.
+__init__.py               Makes examples/ importable (--import-module).
+
+
+docs/
+----
+IMPLEMENTATION_NOTES.md   Paper -> code map and the table of every decision
+                          the paper leaves open (paper / reference code / ours).
+RESULTS.md                Validation results: authors' agent in our simulator,
+                          reward check, router comparisons, bioassays, runtime,
+                          16x16 training run.
+EXTENDING.md              How to add a GNN policy, graph observations or new
+                          routers, and how to benchmark them.
+figures/                  Images and logs used by README and RESULTS:
+  validation_16x16.png                 training curves of the 16x16 run
+  validation_16x16_faults10.png        fault fine-tuning with / without marks
+  episode_16x16_faults10.gif           README animation
+  validation_16x16*_progress.csv       per-epoch logs of the four 16x16 runs
+
+
+tests/  - pytest suite (run `pytest`)
+-----
+conftest.py               Shared fixtures (ideal / worn chips, env factory);
+                          sends test outputs to a temporary runs folder.
+test_geometry_actions.py  Rectangles, the 8 actions, Algorithm 1 examples.
+test_biochip.py           Degradation, health sensing, faults.
+test_movement.py          Movement probabilities and outcome distributions.
+test_env.py               Environment API, observations, rewards, episodes.
+test_training.py          Configs, LR schedule, trainer, curricula.
+test_routers.py           Baseline and formal routers, run_job.
+test_compare.py           Router comparison protocol.
+test_bioassay.py          Bioassay graphs (checked against the reference
+                          file), scheduler, benchmark.
+test_viz.py               Plots and GIFs.
+test_cli.py               The `meda` commands end to end.
+test_extending.py         The GNN extension point.
+test_review_fixes.py      Regression tests for review findings, devices and
+                          output locations.
+
+
+OUTPUTS (created when you run things; not in git)
+-------
+runs/<name>/seed_<s>/model.zip              latest model
+runs/<name>/seed_<s>/best_model.zip         best model by evaluation
+runs/<name>/seed_<s>/checkpoints/epoch_XXX.zip  checkpoints (every 5 epochs)
+runs/<name>/seed_<s>/progress.csv           per-epoch metrics
+runs/<name>/seed_<s>/summary.json           final summary
+runs/<name>/seed_<s>/config.yaml            exact settings of the run
+runs/<name>/seed_<s>/training_curves.png    training curves (updated each epoch)
+runs/<name>/training_curves.png             mean over seeds (repeats > 1)
+runs/<name>/seed_<s>/eval/                  evaluate / compare results + charts
+runs/<name>/seed_<s>/bioassay/              bioassay tables and CDF plots
+runs/<name>/seed_<s>/episode_seed<k>.gif    `meda render` animations
+runs/remote_logs/                           logs of DETACH=1 server runs

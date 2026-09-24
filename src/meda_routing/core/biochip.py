@@ -18,6 +18,14 @@ Two kinds of faults are supported:
   hydrophobic coating) but are *not* visible to the health sensors.
 
 All arrays are indexed ``[x, y]`` with shape ``(W, H)``.
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -35,15 +43,15 @@ from .geometry import Rect
 class DegradationConfig:
     """Parameters of the degradation model (Sec. III-A, IV-A, V-A)."""
 
-    tau_range: Tuple[float, float] = (0.5, 0.7)
-    c_range: Tuple[float, float] = (500.0, 800.0)
+    tau_range: Tuple[float, float] = (0.5, 0.7)  # [PAPER Sec. V-A] tau in [0.5, 0.7], drawn per MC
+    c_range: Tuple[float, float] = (500.0, 800.0)  # [PAPER Sec. V-A] c in [500, 800], drawn per MC
     #: Number of bits ``b`` of the on-chip health measurement unit.
-    health_bits: int = 2
+    health_bits: int = 2  # [REF-CODE] n_bits = 2 (the paper has b bits but gives no b)
     #: How the initial actuation counts ``N`` are sampled at episode start
     #: (Algorithm 2, line 6).  ``"zero"``: healthy chip; ``"uniform"``:
     #: ``n_ij ~ U{0, max_initial_actuations}`` independently per MC.
-    initial_actuations: str = "zero"
-    max_initial_actuations: int = 0
+    initial_actuations: str = "zero"  # [REF-CODE] zero wear in training (Alg. 2 samples N, no law given)
+    max_initial_actuations: int = 0  # [REF-CODE] 0 in training; 399 on bioassay chips
 
 
 class MEDABiochip:
@@ -135,6 +143,7 @@ class MEDABiochip:
         so the reading saturates at ``2**b - 1``.
         """
         levels = self.health_levels
+        # [PAPER Eq. 1] floor(2^b * D); the reference code rounds to nearest instead
         h = np.floor(levels * self.degradation()).astype(np.int64)
         return np.minimum(h, levels - 1)
 

@@ -4,6 +4,14 @@ Defaults reproduce the paper's setup; values the paper leaves open come from
 the authors' reference implementation (``melfar87/MEDA``: ``train.py``,
 ``my_net.py``) or from Stable-Baselines ``PPO2`` defaults, which the authors
 used unchanged.
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -23,9 +31,10 @@ from ..envs.meda_env import EnvConfig
 @dataclass
 class AgentConfig:
     #: Registered feature extractor (``meda_routing.agents.registry``).
-    extractor: str = "cnn"
+    extractor: str = "cnn"  # [PAPER Table I] the CNN; other names = your own extractor (GNN)
     #: Table I: 3x3 convolutions with 64/128/128 filters and a 256-unit FC layer.
     extractor_kwargs: Dict[str, Any] = field(
+        # [PAPER Table I] 3x3 conv 64/128/128 + FC 256; stride 1, SAME padding is [REF-CODE]
         default_factory=lambda: {"channels": [64, 128, 128], "hidden_dim": 256}
     )
 
@@ -46,67 +55,74 @@ class PPOConfig:
     value losses; SB3 uses the clipped prediction only.)
     """
 
-    n_envs: int = 8
-    n_steps: int = 64
-    batch_size: int = 32
-    n_epochs: int = 4
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    ent_coef: float = 0.01
-    vf_coef: float = 0.25
-    max_grad_norm: float = 0.5
-    clip_range: float = 0.2
-    clip_range_vf: Optional[float] = 0.2
+    n_envs: int = 8  # [PAPER Sec. V-B] "eight parallel environments"
+    n_steps: int = 64  # [REF-CODE] PPO2(n_steps=64)
+    batch_size: int = 32  # [REF-CODE] 8*64 samples / nminibatches=16
+    n_epochs: int = 4  # [REF-CODE] PPO2 noptepochs default
+    gamma: float = 0.99  # [REF-CODE] PPO2 default
+    gae_lambda: float = 0.95  # [REF-CODE] PPO2 default
+    ent_coef: float = 0.01  # [REF-CODE] PPO2 default
+    vf_coef: float = 0.25  # [REF-CODE] PPO2's 0.5, translated to SB3 (see above)
+    max_grad_norm: float = 0.5  # [REF-CODE] PPO2 default
+    clip_range: float = 0.2  # [REF-CODE] PPO2 default
+    clip_range_vf: Optional[float] = 0.2  # [REF-CODE] PPO2 clips the value like the policy
     #: ``"dummy"`` (single process) or ``"subproc"`` vectorized environments.
-    vec_env: str = "dummy"
-    device: str = "auto"
+    vec_env: str = "dummy"  # [ASSUMED]
+    #: ``auto`` = local GPU if any, else CPU (``devices.py``).
+    device: str = "auto"  # [ASSUMED] (the paper trained on an RTX 6000 GPU, Sec. V-B)
 
 
 @dataclass
 class ScheduleConfig:
     """Epochs and the dynamic learning-rate scheduler of Sec. IV-B."""
 
-    epochs: int = 25
+    epochs: int = 25  # [PAPER Sec. V-B, Figs. 4/7] 10-40 epochs; 25 for 30x30 [ASSUMED]
     #: Environment steps per training epoch (``2**14`` in Sec. V-B).
-    steps_per_epoch: int = 2**14
+    steps_per_epoch: int = 2**14  # [PAPER Sec. V-B] 2^14 steps
     #: ``eta_0``, ``eta_min`` and ``beta_eta`` (Sec. IV-B).
-    lr0: float = 3.5e-4
-    lr_min: float = 1.0e-6
-    lr_decay: float = 0.7
+    lr0: float = 3.5e-4  # [PAPER Sec. IV-B] eta_0
+    lr_min: float = 1.0e-6  # [PAPER Sec. IV-B] eta_min
+    lr_decay: float = 0.7  # [PAPER Sec. IV-B] beta_eta
     #: The base rate is decayed only if the epoch's success rate exceeds this.
-    success_threshold: float = 0.99
+    success_threshold: float = 0.99  # [PAPER Sec. IV-B] decay if success > 99%
     #: Learning rate within an epoch: ``"constant"`` or ``"sqrt"``
     #: (``eta_i * sqrt(remaining fraction of the epoch)``, as in the reference
     #: ``LearningRateSchedule``; the paper only specifies the per-epoch base rate).
-    intra_epoch: str = "sqrt"
+    intra_epoch: str = "sqrt"  # [REF-CODE] LearningRateSchedule
+    #: Save a full model checkpoint ``checkpoints/epoch_XXX.zip`` every this
+    #: many epochs and after the last one (0: only ``model.zip`` and
+    #: ``best_model.zip``).
+    checkpoint_every: int = 5  # [ASSUMED]
 
 
 @dataclass
 class EvalConfig:
     #: "tested ... for 500 random routing jobs" after every epoch (Sec. V-B).
-    episodes: int = 500
-    deterministic: bool = True
-    n_envs: int = 8
-    seed: int = 10_000
+    episodes: int = 500  # [PAPER Sec. V-B] 500 random routing jobs per epoch
+    deterministic: bool = True  # [REF-CODE] greedy actions during evaluation
+    n_envs: int = 8  # [ASSUMED] only affects speed
+    seed: int = 10_000  # [ASSUMED] same 500 jobs every epoch
 
 
 @dataclass
 class TrainConfig:
-    name: str = "meda"
-    seed: int = 0
+    name: str = "meda"  # [ASSUMED]
+    seed: int = 0  # [ASSUMED]
     #: Independent repetitions with different seeds (the paper uses 5).
-    repeats: int = 1
-    output_dir: str = "runs"
+    repeats: int = 1  # [ASSUMED] to save compute; the paper repeats 5 times [PAPER Sec. V-B]
+    output_dir: str = "runs"  # [ASSUMED] <project>/runs (paths.py)
     #: Initialize from a trained model (transfer learning, Sec. IV-C): path to a
     #: ``model.zip`` or a run directory containing one.
-    init_from: Optional[str] = None
+    init_from: Optional[str] = None  # [PAPER Sec. IV-C] transfer learning when set
     env: EnvConfig = field(default_factory=EnvConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
-    tensorboard: bool = False
-    verbose: int = 1
+    tensorboard: bool = False  # [ASSUMED]
+    #: Draw ``training_curves.png`` into the run folder after every epoch.
+    save_plots: bool = True  # [ASSUMED]
+    verbose: int = 1  # [ASSUMED]
 
     # ------------------------------------------------------------- loading
     @classmethod

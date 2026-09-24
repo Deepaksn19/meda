@@ -3,6 +3,14 @@
 A routing job is characterized by the droplet shape/size, its start and goal
 locations and the biochip area within which routing is allowed (the *hazard
 bounds* ``delta_h``, also called the routing zone).
+
+Where each default comes from is tagged next to it:
+
+* ``[PAPER ...]`` -- the value is stated in the paper (section, figure, table).
+* ``[REF-CODE]`` -- not in the paper; taken from the first author's public
+  code ``melfar87/MEDA`` (incl. the Stable-Baselines PPO2 defaults, saved
+  model and training log of that code).
+* ``[ASSUMED]`` -- not fixed by the paper or the reference code; our choice.
 """
 
 from __future__ import annotations
@@ -15,7 +23,7 @@ import numpy as np
 
 from .geometry import Droplet, Rect, chip_rect
 
-#: Droplet sizes used for training in the paper: ``w, h in {2,...,6}`` with
+#: [PAPER Sec. IV-A] Droplet sizes used for training in the paper: ``w, h in {2,...,6}`` with
 #: aspect ratio ``w / h in [0.8, 1.25]`` (Sec. IV-A).
 PAPER_DROPLET_SIZES: Tuple[Tuple[int, int], ...] = tuple(
     (w, h)
@@ -68,23 +76,23 @@ def hazard_bounds(
 
 @dataclass
 class JobSamplerConfig:
-    droplet_sizes: Sequence[Tuple[int, int]] = field(
+    droplet_sizes: Sequence[Tuple[int, int]] = field(  # [PAPER Sec. IV-A] w, h in {2..6}, w/h in [0.8, 1.25]
         default_factory=lambda: list(PAPER_DROPLET_SIZES)
     )
     #: ``"stratified"`` over-samples droplets adjacent to the chip edges, where
     #: dispensers and reservoirs sit (Sec. IV-A: 20-40% of benchmark routing
     #: jobs touch an edge).  With the reference weights ~60% of the sampled
     #: droplets touch an edge.  ``"uniform"`` samples ``xa ~ U{m, W - w - m}``.
-    sampling: str = "stratified"
+    sampling: str = "stratified"  # [PAPER Sec. IV-A] "stratified"; its exact rule is [REF-CODE]
     #: Fraction of the extra edge mass for stratified sampling; the reference
     #: implementation adds ``W // 5`` copies of each edge coordinate.
-    edge_weight: float = 0.2
+    edge_weight: float = 0.2  # [REF-CODE] W // 5 extra copies of each edge coordinate
     #: Margin (in MCs) for ``"uniform"`` sampling: ``xa ~ U{m, W-w-1-m}``
     #: (0-based).  The default ``m = 1`` is exactly the paper's
     #: ``xa ~ U{2, W-w-1}`` in 1-based coordinates (Sec. IV-A).
-    uniform_margin: int = 1
+    uniform_margin: int = 1  # [PAPER Sec. IV-A] x_a ~ U{2, W-w-1} (1-based)
     #: Routing-zone margin around start and goal; ``None`` = whole chip.
-    hazard_margin: Optional[int] = 3
+    hazard_margin: Optional[int] = 3  # [REF-CODE] routing zone = bbox(start, goal) +- 3 MCs
 
 
 class JobSampler:

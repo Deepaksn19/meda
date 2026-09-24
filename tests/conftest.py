@@ -10,8 +10,9 @@ the degradation state it needs (Sec. III-A, Eq. 1: ``D = tau ** (n / c)``):
 
 Every fixture that draws random numbers is seeded.  Environments from
 ``make_env`` start unseeded; every test that steps or samples one seeds it
-through ``reset(seed=...)`` first, so the suite is reproducible.  No fixture
-is ``autouse``.
+through ``reset(seed=...)`` first, so the suite is reproducible.  The only
+``autouse`` fixture sends default outputs (``runs/``) to a temporary folder,
+so tests never write into the repository.
 """
 
 from __future__ import annotations
@@ -23,6 +24,12 @@ import pytest
 
 from meda_routing.core.biochip import DegradationConfig, MEDABiochip
 from meda_routing.envs.meda_env import MEDARoutingEnv
+
+
+@pytest.fixture(autouse=True)
+def _runs_in_tmp(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("MEDA_RUNS_DIR", str(tmp_path_factory.mktemp("runs")))
+    monkeypatch.delenv("MEDA_DEVICE", raising=False)
 
 
 def make_ideal_chip(width: int, height: int, seed: int = 0) -> MEDABiochip:

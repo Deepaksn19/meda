@@ -4,25 +4,29 @@
 # by chip_seed, and its wear accumulates across episodes instead of being
 # reset. Each epoch is evaluated on a snapshot of the training chip, so the
 # evaluation episodes do not wear the chip being adapted to.
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: online_adaptation_30x30
-init_from: runs/paper_30x30_faults10/seed_0
-output_dir: runs
+init_from: runs/paper_30x30_faults10/seed_0 # [PAPER Sec. I] start from the offline-trained agent
+output_dir: runs             # [ASSUMED]
 env:
-  width: 30
-  height: 30
-  obs_size: [30, 30]
-  persistent_chip: true
-  chip_seed: 2023
-  fault_fraction: 0.10
+  width: 30                  # [ASSUMED]
+  height: 30                 # [ASSUMED]
+  obs_size: [30, 30]         # [PAPER Sec. IV-C]
+  persistent_chip: true      # [ASSUMED] one chip whose wear accumulates (idea of Sec. I)
+  chip_seed: 2023            # [ASSUMED]
+  fault_fraction: 0.10       # [PAPER Sec. V-B] 10% faults
   degradation:
-    initial_actuations: uniform
-    max_initial_actuations: 400
+    initial_actuations: uniform # [ASSUMED]
+    max_initial_actuations: 400 # [ASSUMED]
 ppo:
-  n_envs: 1            # one physical chip
-  n_steps: 512         # keeps 512 samples per PPO update
-  batch_size: 32
+  n_envs: 1                  # [ASSUMED]; one physical chip
+  n_steps: 512                # [ASSUMED] keeps 512 samples per PPO update (8 x 64 in the paper setup)
+  batch_size: 32             # [REF-CODE] minibatch size
 schedule:
-  epochs: 10
-  lr0: 1.0e-4
+  epochs: 10                 # [ASSUMED]
+  lr0: 1.0e-4                # [ASSUMED] smaller rate for fine-tuning
 eval:
-  n_envs: 1
+  n_envs: 1                   # [ASSUMED]

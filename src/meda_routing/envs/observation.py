@@ -25,7 +25,7 @@ import numpy as np
 from ..core.geometry import Rect
 
 HEALTH, DROPLET, GOAL = 0, 1, 2
-NUM_CHANNELS = 3
+NUM_CHANNELS = 3  # [PAPER Fig. 2] health (masked to the routing zone), droplet, goal
 
 
 def observation_shape(width: int, height: int, obs_size: Optional[Tuple[int, int]]) -> Tuple[int, int, int]:

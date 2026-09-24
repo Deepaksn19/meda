@@ -64,7 +64,7 @@ from .base import Router, RoutingState
 from .baseline import diagonal_step_for, parse_step_mode
 
 #: Values closer than this are treated as equal when breaking ties.
-DEFAULT_TIE_TOLERANCE = 1e-9
+DEFAULT_TIE_TOLERANCE = 1e-9  # [ASSUMED] numerical tolerance only
 
 
 def _check_horizon(horizon: int) -> int:
@@ -87,7 +87,7 @@ def _check_tie_tolerance(tie_tolerance: float) -> float:
 def default_horizon(start: Rect, goal: Rect) -> int:
     """``K = ceil(1.5 * D(start, goal)) + 1`` (reference ``pfcnGetKmax``)."""
     dist = abs(start.xa - goal.xa) + abs(start.ya - goal.ya)
-    return int(np.ceil(1.5 * dist)) + 1
+    return int(np.ceil(1.5 * dist)) + 1  # [REF-CODE] factor 1.5 and +1 of pfcnGetKmax
 
 
 def estimate_degradation(health: np.ndarray, levels: int) -> np.ndarray:

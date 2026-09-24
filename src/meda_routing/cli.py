@@ -9,6 +9,12 @@ compare        DRL vs. baseline vs. formal routers on identical jobs (Sec. VI)
 bioassay       COVID-RAT / COVID-PCR completion-time benchmark (Fig. 9)
 plot-training  training curves from run directories (Figs. 4, 7, 8)
 render         record a GIF of the agent routing a droplet
+devices        list the local compute devices (GPU / CPU) and the one used
+
+Outputs go next to the model they belong to (``runs/<name>/seed_<s>/eval``,
+``.../bioassay``, ...) unless ``--out`` says otherwise; see ``paths.py``.
+Networks run on a local GPU when there is one (``devices.py``); for a GPU
+server on the network use ``scripts/run_on_gpu_server.sh``.
 
 ``train`` and ``curriculum`` accept ``--set key=value`` overrides of any
 training-config value, e.g. ``--set schedule.epochs=40``.  ``evaluate``,
@@ -74,6 +80,15 @@ def _env_config_from(model: Optional[str], config: Optional[str], overrides: Lis
     return TrainConfig.from_dict({k: v for k, v in data.items() if k in {"env"}}).env
 
 
+def _default_out(model: Optional[str], *parts: str) -> Path:
+    """Default output path: inside the model's run folder, else ``<runs>/``."""
+    from .paths import run_dir_of, runs_dir
+    from .training.trainer import resolve_model_path
+
+    base = run_dir_of(resolve_model_path(model)) if model else runs_dir()
+    return base.joinpath(*parts)
+
+
 def _router_factories(names: List[str], model: Optional[str], step_mode: str) -> Dict[str, Callable]:
     from .routers.baseline import ShortestPathRouter
     from .routers.formal import FormalRouter
@@ -133,15 +148,19 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     from .training.trainer import json_safe, make_vec, resolve_model_path
 
     env_config = _env_config_from(args.model, args.config, args.set)
-    model = PPO.load(resolve_model_path(args.model), device=args.device)
+    from .devices import resolve_device
+
+    model = PPO.load(resolve_model_path(args.model), device=resolve_device(args.device))
     vec = make_vec(env_config, args.n_envs, args.seed)
     metrics = evaluate_model(model, vec, args.episodes, deterministic=not args.stochastic)
     vec.close()
     # strict JSON: NaN (e.g. no successful episode) becomes null
     text = json.dumps(json_safe(metrics), indent=2, allow_nan=False)
     print(text)
-    if args.out:
-        Path(args.out).write_text(text)
+    out = Path(args.out) if args.out else _default_out(args.model, "eval", f"evaluate_seed{args.seed}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
+    print(f"saved: {out}", file=sys.stderr)
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
@@ -157,11 +176,19 @@ def cmd_compare(args: argparse.Namespace) -> None:
     df = compare_routers(factories, env_config, args.jobs, args.seed, k_max=args.k_max, progress=progress)
     summary = summarize_comparison(df)
     _print_table(summary)
-    if args.out:
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(out, index=False)
-        summary.to_csv(out.with_name(out.stem + "_summary.csv"))
+    tag = "_".join(r.lower() for r in args.routers)
+    out = Path(args.out) if args.out else _default_out(args.model, "eval", f"compare_{tag}_seed{args.seed}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    summary.to_csv(out.with_name(out.stem + "_summary.csv"))
+    try:
+        from .viz.plots import plot_router_comparison
+
+        fig = plot_router_comparison(summary, f"{args.jobs} jobs, seed {args.seed}", out.with_suffix(".png"))
+        print(f"figure: {fig}")
+    except ImportError:  # plotting is optional
+        pass
+    print(f"saved: {out}", file=sys.stderr)
 
 
 def cmd_bioassay(args: argparse.Namespace) -> None:
@@ -183,7 +210,7 @@ def cmd_bioassay(args: argparse.Namespace) -> None:
             c_range=tuple(args.c_range or defaults.c_range),
             health_bits=health_bits if health_bits is not None else defaults.health_bits,
         )
-    out_dir = Path(args.out)
+    out_dir = Path(args.out) if args.out else _default_out(args.model if uses_drl else None, "bioassay")
     out_dir.mkdir(parents=True, exist_ok=True)
     results: Dict[str, np.ndarray] = {}
     rows = []
@@ -235,13 +262,19 @@ def cmd_plot_training(args: argparse.Namespace) -> None:
             raise SystemExit(f"no progress.csv under {p}")
         return found
 
-    if len(args.runs) == 1:
-        title = args.title or Path(args.runs[0]).name
-        fig = plot_training_curves(histories(args.runs[0]), title, args.out)
+    from .paths import find_existing
+
+    runs = [str(find_existing(r)) for r in args.runs]
+    first = Path(runs[0])
+    default_dir = first if first.is_dir() else first.parent
+    if len(runs) == 1:
+        title = args.title or first.name
+        fig = plot_training_curves(histories(runs[0]), title, args.out or default_dir / "training_curves.png")
     else:
-        labels = args.labels or [Path(r).name for r in args.runs]
-        groups = {label: histories(run) for label, run in zip(labels, args.runs)}
-        fig = plot_training_comparison(groups, args.title or "training", args.out)
+        labels = args.labels or [Path(r).name for r in runs]
+        groups = {label: histories(run) for label, run in zip(labels, runs)}
+        out = args.out or default_dir.parent / f"comparison_{'_vs_'.join(Path(r).name for r in runs)}.png"
+        fig = plot_training_comparison(groups, args.title or "training", out)
     print(f"figure: {fig}")
 
 
@@ -258,8 +291,15 @@ def cmd_render(args: argparse.Namespace) -> None:
         action, _ = router.model.predict(obs, deterministic=True)
         return int(action)
 
-    info = record_episode(env, policy, args.out, seed=args.seed)
+    out = args.out or _default_out(args.model, f"episode_seed{args.seed}.gif")
+    info = record_episode(env, policy, out, seed=args.seed)
     print(json.dumps({k: v for k, v in info.items() if k != "frames"}, indent=2, default=str))
+
+
+def cmd_devices(args: argparse.Namespace) -> None:
+    from .devices import describe_devices
+
+    print(describe_devices())
 
 
 # --------------------------------------------------------------- parser
@@ -298,12 +338,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("evaluate", help="evaluate a trained agent on random jobs")
     p.add_argument("--model", "-m", required=True, help="model.zip or run directory")
     p.add_argument("--config", "-c", help="training YAML for the env (default: the run's config)")
-    p.add_argument("--episodes", type=int, default=500)
-    p.add_argument("--n-envs", type=int, default=8)
-    p.add_argument("--seed", type=int, default=12345)
+    p.add_argument("--episodes", type=int, default=500)  # [PAPER Sec. V-B] 500 random jobs
+    p.add_argument("--n-envs", type=int, default=8)  # [ASSUMED] speed only
+    p.add_argument("--seed", type=int, default=12345)  # [ASSUMED]
     p.add_argument("--stochastic", action="store_true", help="sample actions instead of argmax")
-    p.add_argument("--device", default="cpu")
-    p.add_argument("--out", help="write metrics JSON here")
+    p.add_argument("--device", default="auto", help="auto (local GPU if any), cpu, cuda[:i] or mps")
+    p.add_argument("--out", help="metrics JSON (default: <run>/eval/evaluate_seed<seed>.json)")
     add_import(p)
     add_set(p, env_only=True)
     p.set_defaults(func=cmd_evaluate)
@@ -311,14 +351,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("compare", help="compare routers on identical random jobs (Sec. VI)")
     p.add_argument("--model", "-m", help="trained agent (needed for the drl router)")
     p.add_argument("--config", "-c", help="training YAML for the env (default: the run's config)")
-    p.add_argument("--routers", nargs="+", default=["drl", "baseline"])
+    p.add_argument("--routers", nargs="+", default=["drl", "baseline"])  # [PAPER Sec. VI] DRL vs. shortest path
     p.add_argument("--step-mode", default="single", choices=["single", "double", "adaptive"],
-                   help="step mode of the baseline and formal routers")
-    p.add_argument("--jobs", type=int, default=200)
-    p.add_argument("--seed", type=int, default=0)
+                   help="step mode of the baseline and formal routers")  # [ASSUMED] single steps like the PCB baseline of Sec. VI
+    p.add_argument("--jobs", type=int, default=200)  # [ASSUMED]
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
     p.add_argument("--k-max", type=int, default=None,
-                   help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")
-    p.add_argument("--out", help="CSV with one row per (job, router)")
+                   help="fixed cycle budget per job (Sec. VI uses 40); default: the env's k_max")  # [PAPER Sec. VI] prototype runs used 40 cycles; default = env's k_max
+    p.add_argument("--out", help="CSV with one row per (job, router); a summary CSV and a PNG "
+                                 "go next to it (default: <run>/eval/compare_<routers>_seed<seed>.csv)")
     add_import(p)
     add_set(p, env_only=True)
     p.set_defaults(func=cmd_compare)
@@ -326,24 +367,25 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bioassay", help="bioassay completion benchmark (Fig. 9)")
     p.add_argument("--assay", default="covid-rat", help="covid-rat | covid-pcr | simple")
     p.add_argument("--model", "-m", help="trained agent for the drl router (60x30 chip)")
-    p.add_argument("--routers", nargs="+", default=["baseline", "formal", "drl"])
+    p.add_argument("--routers", nargs="+", default=["baseline", "formal", "drl"])  # [PAPER Fig. 9] baseline, formal and DRL
     p.add_argument("--step-mode", default="double", choices=["single", "double", "adaptive"],
                    help="step mode of the baseline and formal routers (default: double, the "
-                        "MEDAX model the reference Fig. 9 driver uses)")
-    p.add_argument("--trials", type=int, default=100)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-initial-actuations", type=int, default=399)
+                        "MEDAX model the reference Fig. 9 driver uses)")  # [REF-CODE] Fig. 9 driver used double steps (bDStep = 1)
+    p.add_argument("--trials", type=int, default=100)  # [ASSUMED] the paper/reference run 1000 trials; 100 is faster
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
+    p.add_argument("--max-initial-actuations", type=int, default=399)  # [REF-CODE] pre-aged chips, n ~ U{0, 399}
     p.add_argument("--tau-range", type=float, nargs=2, metavar=("LO", "HI"),
                    help="degradation tau range (default: paper, 0.5 0.7; the authors' "
                         "bioassay runs used 0.7 0.7)")
     p.add_argument("--c-range", type=float, nargs=2, metavar=("LO", "HI"),
                    help="degradation c range (default: paper, 500 800; the authors' "
                         "bioassay runs used 200 200)")
-    p.add_argument("--fault-fraction", type=float, default=0.0)
-    p.add_argument("--hidden-defect-fraction", type=float, default=0.0)
-    p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])
-    p.add_argument("--max-cycles", type=int, default=2000)
-    p.add_argument("--out", default="results/bioassay")
+    p.add_argument("--fault-fraction", type=float, default=0.0)  # [ASSUMED] Fig. 9 injects no faults
+    p.add_argument("--hidden-defect-fraction", type=float, default=0.0)  # [ASSUMED]
+    p.add_argument("--on-timeout", default="continue", choices=["continue", "skip", "fail"])  # [ASSUMED] reference treats timed-out jobs as done (skip)
+    p.add_argument("--max-cycles", type=int, default=2000)  # [REF-CODE] k_max = 2000 per bioassay
+    p.add_argument("--out", help="output folder (default: <run>/bioassay with a DRL model, "
+                                 "else runs/bioassay)")
     add_import(p)
     p.set_defaults(func=cmd_bioassay)
 
@@ -351,17 +393,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("runs", nargs="+", help="run dirs (<name> or <name>/seed_<s>) or progress.csv files")
     p.add_argument("--labels", nargs="*")
     p.add_argument("--title")
-    p.add_argument("--out", default="training_curves.png")
+    p.add_argument("--out", help="figure (default: training_curves.png in the (first) run folder)")
     p.set_defaults(func=cmd_plot_training)
 
     p = sub.add_parser("render", help="record a GIF of one routing episode")
     p.add_argument("--model", "-m", required=True)
     p.add_argument("--config", "-c")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default="episode.gif")
+    p.add_argument("--seed", type=int, default=0)  # [ASSUMED]
+    p.add_argument("--out", help="GIF (default: <run>/episode_seed<seed>.gif)")
     add_import(p)
     add_set(p, env_only=True)
     p.set_defaults(func=cmd_render)
+
+    p = sub.add_parser("devices", help="list local GPUs / CPU and the device 'auto' picks")
+    p.set_defaults(func=cmd_devices)
     return parser
 
 

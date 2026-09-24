@@ -31,6 +31,8 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
 
 from ..agents.registry import policy_kwargs_for
+from ..devices import resolve_device
+from ..paths import find_existing, resolve_output_dir
 from ..envs.meda_env import EnvConfig, MEDARoutingEnv
 from .config import TrainConfig
 from .evaluation import evaluate_model
@@ -90,8 +92,12 @@ def json_safe(value: Any) -> Any:
 
 
 def resolve_model_path(path: Union[str, Path]) -> Path:
-    """Accept a ``.zip`` file or a run directory containing ``model.zip``."""
-    p = Path(path)
+    """Accept a ``.zip`` file or a run directory containing ``model.zip``.
+
+    Relative paths that do not exist from the current directory are looked
+    up in the project folder (so ``runs/<name>/seed_0`` works from anywhere).
+    """
+    p = find_existing(path)
     if p.is_dir():
         for candidate in ("model.zip", "best_model.zip"):
             if (p / candidate).exists():
@@ -126,7 +132,7 @@ def build_model(config: TrainConfig, env: VecEnv, lr: DynamicLearningRate, seed:
         policy_kwargs=policy_kwargs_for(config.agent.extractor, config.agent.extractor_kwargs),
         tensorboard_log=str(log_dir) if log_dir is not None else None,
         seed=seed,
-        device=ppo.device,
+        device=resolve_device(ppo.device),  # local GPU if available (see devices.py)
         verbose=0,
     )
 
@@ -229,6 +235,10 @@ class Trainer:
                 self.history.append(row)
                 pd.DataFrame(self.history, columns=PROGRESS_COLUMNS).to_csv(progress_csv, index=False)
                 model.save(self.run_dir / "model.zip", exclude=SAVE_EXCLUDE)
+                every = sched.checkpoint_every
+                if every and (epoch % every == 0 or epoch == sched.epochs):
+                    (self.run_dir / "checkpoints").mkdir(exist_ok=True)
+                    model.save(self.run_dir / "checkpoints" / f"epoch_{epoch:03d}.zip", exclude=SAVE_EXCLUDE)
                 key = (metrics["success_rate"], -metrics["mean_cycles"])
                 if key > best_key:
                     best_key = key
@@ -239,6 +249,9 @@ class Trainer:
                     f"cycles {metrics['mean_cycles']:6.2f}  lr {epoch_lr:.2e}"
                     f"{' -> decay' if decayed else ''}  ({row['epoch_seconds']:.0f}s)"
                 )
+                if cfg.save_plots:
+                    _plot_curves([progress_csv], f"{cfg.name} (seed {self.seed})",
+                                 self.run_dir / "training_curves.png")
         finally:
             train_env.close()
             eval_env.close()
@@ -259,7 +272,7 @@ class Trainer:
 
 def train(config: TrainConfig, output_dir: Optional[Union[str, Path]] = None) -> List[Path]:
     """Train ``config.repeats`` agents with seeds ``seed, seed+1, ...``."""
-    root = Path(output_dir or config.output_dir) / config.name
+    root = (Path(output_dir) if output_dir else resolve_output_dir(config.output_dir)) / config.name
     root.mkdir(parents=True, exist_ok=True)
     config.save_yaml(root / "config.yaml")
     run_dirs = []
@@ -268,4 +281,17 @@ def train(config: TrainConfig, output_dir: Optional[Union[str, Path]] = None) ->
         run_dir = root / f"seed_{seed}"
         Trainer(config, run_dir, seed).run()
         run_dirs.append(run_dir)
+    if config.save_plots and len(run_dirs) > 1:
+        # mean and min-max band over the repeats, as in the paper's figures
+        _plot_curves([d / "progress.csv" for d in run_dirs], config.name, root / "training_curves.png")
     return run_dirs
+
+
+def _plot_curves(histories: List[Path], title: str, out: Path) -> None:
+    """Training curves (score, success rate, cycles); never fails a training run."""
+    try:
+        from ..viz.plots import plot_training_curves
+
+        plot_training_curves(histories, title, out)
+    except Exception as err:  # noqa: BLE001 - plotting is a convenience
+        print(f"(could not draw {out}: {err})", flush=True)

@@ -30,3 +30,6 @@ wandb/
 .vscode/
 .DS_Store
 *.swp
+
+# Local GPU-server settings (see scripts/gpu_server.env.example)
+scripts/gpu_server.env

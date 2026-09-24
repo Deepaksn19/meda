@@ -2,15 +2,19 @@
 # reference code run on a 60x30 chip (W=60, H=30) with 4x4 droplets on a
 # pre-aged chip (n_ij ~ U{0, 399}). The observation is resampled to 30x30,
 # so the agent is initialized from H*(30, 0%) (transfer learning).
+#
+# Tags: [PAPER ...] stated in the paper; [REF-CODE] from the authors' code
+# (melfar87/MEDA), not in the paper; [ASSUMED] our choice. Values not listed
+# come from paper_30x30_healthy.yaml / the code defaults, which are tagged there.
 name: covid_60x30
-init_from: runs/paper_30x30_healthy/seed_0
-output_dir: runs
+init_from: runs/paper_30x30_healthy/seed_0 # [PAPER Sec. IV-C] transfer learning from H*(30, 0%)
+output_dir: runs             # [ASSUMED]
 env:
-  width: 60
-  height: 30
-  obs_size: [30, 30]
+  width: 60                  # [REF-CODE] bioassay chip 60x30 (test_bioassay.py)
+  height: 30                 # [REF-CODE]
+  obs_size: [30, 30]         # [PAPER Sec. IV-C] unified observation
   degradation:
-    initial_actuations: uniform
-    max_initial_actuations: 399
+    initial_actuations: uniform # [ASSUMED] train on pre-aged chips like the bioassay chips
+    max_initial_actuations: 399 # [REF-CODE] n ~ U{0, 399} in the bioassay driver
 schedule:
-  epochs: 25
+  epochs: 25                 # [ASSUMED]
