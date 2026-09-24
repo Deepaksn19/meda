@@ -188,7 +188,8 @@ src/meda_routing/
   viz/         training curves, completion CDFs, routing paths, GIFs
   cli.py       the `meda` command
 configs/       training configs and curricula (paper defaults are documented inline)
-docs/          implementation notes and the GNN extension guide
+docs/          implementation notes, results and the GNN extension guide
+FILES.txt      what every file does
 examples/      a minimal GNN feature extractor showing the extension point
 tests/         pytest suite
 ```
